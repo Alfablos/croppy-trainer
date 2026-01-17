@@ -31,11 +31,14 @@
           with pythonPackages;
           [
             numpy
+            pandas
             torch-bin
             torchvision-bin
             pillow
             opencv-python-headless
             matplotlib
+            tqdm
+            pynvml
           ]
           ++ (gpuDependantPackages pkgs)
         );

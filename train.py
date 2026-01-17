@@ -14,6 +14,8 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 
 import utils
+import data
+from common import Device
 
 
 
@@ -21,11 +23,6 @@ IMAGE_SIZE: int = 512
 DEFAULT_WEIGHTS = visionmodels.ResNet18_Weights.DEFAULT
 BATCH_SIZE: int = 16
 
-
-class Device(Enum):
-    CPU = "cpu"
-    CUDA = "cuda"
-    MPS = "mps"
 
 
 class CroppyTrainer(nn.Module):
@@ -50,15 +47,17 @@ class CroppyTrainer(nn.Module):
         return self.model(x)
 
 
-class DocumentSet(Dataset):
-    def __init__(self, image_paths, labels, model_weigths):
-        if len(image_paths) != len(labels):
-            raise ValueError("images and labels have different lengths!")
+class SmartDocDatasetResnet(Dataset):
+    supported_img_formats = ["png"]
+
+    def __init__(self, image_root, model_weigths):
 
         super().__init__()
 
-        self.image_paths = image_paths
-        self.labels = labels
+
+
+        self.image_paths = "image_paths"
+        self.labels = "labels"
 
         t = model_weigths.transforms()
         normalize = transformsV2.Normalize(mean=t.mean, std=t.std)
@@ -99,7 +98,7 @@ class DocumentSet(Dataset):
 
 
 def train(
-    dataset: DocumentSet,
+    dataset: SmartDocDatasetResnet,
     mode_weights,
     dropout: float,
     device: Device,
@@ -165,7 +164,7 @@ if __name__ == "__main__":
 
     weights = visionmodels.ResNet18_Weights.DEFAULT
 
-    dataset = DocumentSet(image_paths=[], labels=[], model_weigths=weights)
+    dataset = SmartDocDatasetResnet(image_root='', model_weigths=weights)
 
     train(
         dataset=dataset,
