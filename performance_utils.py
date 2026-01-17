@@ -3,10 +3,35 @@ from pathlib import Path
 from sys import stderr
 from enum import Enum
 
+import numpy as np
+import torch
+
+
 class Precision(Enum):
     FP32  = 4 # 4 bytes
     FP16  = 2
     UINT8 = 1
+
+    def to_type_cpu(self):
+        if self == Precision.FP32:
+            return np.float32()
+        elif self == Precision.FP16:
+            return np.float16()
+        elif self == Precision.UINT8:
+            return np.uint8()
+        else:
+            raise NotImplementedError(f"No type associated with {self} for CPU. This is a bug!")
+
+    def to_type_gpu(self):
+        if self == Precision.FP32:
+            return torch.float32
+        elif self == Precision.FP16:
+            return torch.float16
+        elif self == Precision.UINT8:
+            return torch.uint8
+        else:
+            raise NotImplementedError(f"No type associated with {self} for GPU. This is a bug!")
+
 
 
 def create_path_batch(root: str | Path, n):

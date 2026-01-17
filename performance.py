@@ -18,7 +18,7 @@ import getpass
 from multiprocessing import cpu_count
 from multiprocessing.pool import Pool
 from pathlib import Path
-from typing import List
+from typing import List, NoReturn
 
 import pandas as pd
 import cv2
@@ -37,9 +37,9 @@ batch_sizes = [1, 10, 20, 50, 100, 150, 200, 250, 300, 350, 400, 700, 1000, 1200
 batches = list(map(lambda size: create_path_batch(dateset_path, size), batch_sizes)) # eager
 
 
-def batch_to_gpu(paths: List[str | np.ndarray], max_h: int, max_w: int):
+def batch_to_gpu(paths: List[str | np.ndarray], max_h: int, max_w: int, progress_bar):
     n = len(paths)
-    batch_tensor = torch.zeros(size=(n, max_h, max_w))
+    tensor = torch.zeros(size=(n, max_h, max_w))
 
     for i, p in enumerate(paths):
         # handle mixed dataset
@@ -49,13 +49,14 @@ def batch_to_gpu(paths: List[str | np.ndarray], max_h: int, max_w: int):
             img = p
         h, w = img.shape
         img_norm = img.astype(np.float32) / 255.0
-        # NOT batch_tensor[i] = torch.from_numpy(img_norm) !! but
-        batch_tensor[i, :h, :w] = torch.from_numpy(img_norm)
+        # NOT tensor[i] = torch.from_numpy(img_norm) !! but
+        tensor[i, :h, :w] = torch.from_numpy(img_norm)
         # because the image will be at most as big as max_h and max_w but can be smaller!
-    tensor = batch_tensor.to(Device.CUDA.value)
+    # tensor = tensor.to(Device.CUDA.value)
     # transferring to GPU
     torch.cuda.synchronize()
-    return tensor
+    progress_bar.update(n)
+    return tensor.to(Device.CUDA.value)
 
 
 def images_for_vram(vram_commitment, max_h, max_w, precision: Precision = Precision.FP32):
@@ -71,7 +72,7 @@ def images_for_vram(vram_commitment, max_h, max_w, precision: Precision = Precis
     # n x h x w x P (If P = float32 => 4 bytes) = ram_commitment
     # n = ram_commitment / (h * w * 4)
     img_size = (max_h * max_w * precision.value)
-    return vram_commitment // img_size # integer division floors
+    return vram_commitment // img_size # integer division floors the value
 
 
 
@@ -81,14 +82,15 @@ def compute_gpu(batch: List[str], vram_commitment):
     total_images = len(batch)
     start = time.time()
 
-    with tqdm(total=total_images) as pbar:
-        for i in range(0, total_images, max_images):
-            tensor = batch_to_gpu(batch[i : i + max_images], max_h, max_w)
-            minibatch_size = tensor.shape[0]
-            for img in range(minibatch_size):
-                _ = coords_from_segmentation_mask(tensor[img], device=Device.CUDA)
-                pbar.update(1)
-            del tensor
+    with tqdm(total=total_images, leave=True, position=0, desc=f"Uploading {total_images} images to GPU") as uploadbar:
+        with tqdm(total=total_images, leave=True, position=1, desc="Computing mask corner coordinates") as workbar:
+            for i in range(0, total_images, max_images):
+                tensor = batch_to_gpu(batch[i : i + max_images], max_h, max_w, uploadbar)
+                minibatch_size = tensor.shape[0]
+                for img in range(minibatch_size):
+                    _ = coords_from_segmentation_mask(tensor[img], device=Device.CUDA)
+                    workbar.update(1)
+                del tensor
     return time.time() - start
 
 
