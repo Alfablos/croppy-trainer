@@ -334,7 +334,8 @@ def compute_hybrid(
                     cpu_thread.start()
                 if gpu_batch:
                     _ = compute_gpu(gpu_batch, vram_commitment)
-
+                if cpu_batch:
+                    cpu_thread.join()
                 t = time.time() - start_time
                 debug(f"Took {t} seconds.")
                 # drop_disk_cache(password, verbose=True)
@@ -406,7 +407,7 @@ if __name__ == "__main__":
         4000,
         5000,
         10000,
-        15000,
+        # 15000,
         # 22000,
     ]
     batches = list(
@@ -433,7 +434,7 @@ if __name__ == "__main__":
     # )
 
     n_cores = cpu_count() - 5
-    cpu_split = 0.8
+    cpu_split = 0.6
     vram_commitment = 14.5 * (1024**3)
     precision = Precision.FP32
     csv_file = f"./compute_durations_hybrid_{n_cores}c_{cpu_split}cpu_{vram_commitment/ (1024**3)}GVRAM_{precision}.csv"
