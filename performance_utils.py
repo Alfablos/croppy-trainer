@@ -12,6 +12,17 @@ class Precision(Enum):
     FP16  = 2
     UINT8 = 1
 
+    def __str__(self):
+        if self == Precision.FP32:
+            return "Float32"
+        elif self == Precision.FP16:
+            return "Float16"
+        elif self == Precision.UINT8:
+            return "UINT8"
+        else:
+            raise NotImplementedError(f"No type associated with {self} for CPU. This is a bug!")
+
+
     def to_type_cpu(self) -> np.dtype:
         if self == Precision.FP32:
             return np.float32
