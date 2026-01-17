@@ -8,6 +8,7 @@ The function that implements the algorithm
 4. TODO: All of the above with lower precision (FP16, UINT8)
 5. TODO: Federated with a cloud instance
 """
+
 import logging
 from logging import info, debug
 from datetime import datetime
@@ -22,7 +23,7 @@ import getpass
 from multiprocessing import cpu_count
 from multiprocessing.pool import Pool
 from pathlib import Path
-from typing import List, NoReturn
+from typing import List, NoReturn, Any
 
 import pandas as pd
 import cv2
@@ -35,10 +36,28 @@ from pynvml import (
     c_nvmlVgpuTypeIdInfo_v1_t,
 )
 from tqdm import tqdm
+from triton.language import dtype
 
 from common import Device
-from utils import coords_from_segmentation_mask, find_max_dims
-from performance_utils import drop_disk_cache, create_path_batch, Precision
+from utils import coords_from_segmentation_mask, find_max_dims, Precision
+from performance_utils import drop_disk_cache, create_path_batch
+
+
+class TqdmHandler(logging.Handler):
+    def emit(self, record):
+        tqdm.write(self.format(record))
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+file_handler = logging.FileHandler("performance.log", mode="a")
+file_handler.setFormatter(
+    logging.Formatter("%(asctime)s - %(message)s", datefmt="%Y-%m-%d | %H:%M:%S")
+)
+logger.addHandler(file_handler)
+logger.addHandler(TqdmHandler())
+
+logger.info(f"{datetime.now()}")
+
 
 cuda_device = 0
 dateset_path = Path(
@@ -46,9 +65,22 @@ dateset_path = Path(
 )
 
 
-def batch_to_gpu(paths: List[str | np.ndarray], max_h: int, max_w: int, progress_bar):
+def batch_to_gpu(
+    paths: List[str | np.ndarray],
+    max_h: int,
+    max_w: int,
+    progress_bar,
+    precision: Precision,
+):
+    if not precision:
+        raise ValueError("Precision MUST be specified")
+
+
     n = len(paths)
-    tensor = torch.zeros(size=(n, max_h, max_w))
+    tensor = torch.zeros(
+        size=(n, max_h, max_w),
+        dtype=precision.to_type_gpu()
+    )
 
     for i, p in enumerate(paths):
         # handle mixed dataset
@@ -56,10 +88,19 @@ def batch_to_gpu(paths: List[str | np.ndarray], max_h: int, max_w: int, progress
             img = cv2.imread(p, cv2.IMREAD_GRAYSCALE)
         else:
             img = p
+
+        assert img.dtype == np.uint8(), "Should have a np.ndarray of np.uint8() at this point..."
+
         h, w = img.shape
-        img_norm = img.astype(np.float32) / 255.0
+
+        # While READING the image, since each pixel is in range 0-255 np.int8() (CPU first)
+        img = img.astype(np.uint8())
+
+        if precision != Precision.UINT8:
+            img = img.astype(precision.to_type_cpu()) / 255.0
+
         # NOT tensor[i] = torch.from_numpy(img_norm) !! but
-        tensor[i, :h, :w] = torch.from_numpy(img_norm)
+        tensor[i, :h, :w] = torch.from_numpy(img)
         # because the image will be at most as big as max_h and max_w but can be smaller!
     # tensor = tensor.to(Device.CUDA.value)
     # transferring to GPU
@@ -86,9 +127,11 @@ def images_for_vram(
     return int(vram_commitment // img_size)  # integer division floors the value
 
 
-def compute_gpu(batch: List[str], vram_commitment):
+def compute_gpu(batch: List[str], vram_commitment, precision):
+    if not precision:
+        raise ValueError("Precision MUST be set.")
     max_h, max_w = find_max_dims(batch)
-    max_images = images_for_vram(vram_commitment, max_h, max_w, Precision.FP32)
+    max_images = images_for_vram(vram_commitment, max_h, max_w, precision)
     total_images = len(batch)
     start = time.time()
 
@@ -106,37 +149,42 @@ def compute_gpu(batch: List[str], vram_commitment):
         ) as workbar:
             for i in range(0, total_images, max_images):
                 tensor = batch_to_gpu(
-                    batch[i : i + max_images], max_h, max_w, uploadbar
+                    batch[i : i + max_images], max_h, max_w, uploadbar, precision
                 )
                 minibatch_size = tensor.shape[0]
                 for img in range(minibatch_size):
-                    _ = coords_from_segmentation_mask(tensor[img], device=Device.CUDA)
+                    _ = coords_from_segmentation_mask(tensor[img], device=Device.CUDA, precision=precision)
                     workbar.update(1)
                 del tensor
     return time.time() - start
 
 
-def compute_cpu(path: str, verbose=False):
+def compute_cpu(path: str, precision: Precision, verbose=False):
+    if not precision:
+        raise ValueError("Precision must be specified.")
     try:
         start_imload = time.time()
         image = cv2.imread(
             filename=path,
             flags=cv2.IMREAD_GRAYSCALE,
         )  # RETURNS (H, W), NOT (W, H)!
+        # While READING the image, since each pixel is in range 0-255 np.int8() (CPU first)
+        image.astype(np.uint8())
         time_imload = time.time() - start_imload
         if verbose:
-            info(f"Loading an image from disk took {time_imload}")
+            logger.info(f"Loading an image from disk took {time_imload}")
 
-        image = np.divide(image, 255.0)
+        if precision != Precision.UINT8:
+            image = np.divide(image, 255.0)
 
         if verbose:
-            info(f"The image stays on CPU")
+            logger.info(f"The image stays on CPU")
 
         start_compute_time = time.time()
-        whites = coords_from_segmentation_mask(image, Device.CPU)
+        whites = coords_from_segmentation_mask(image, precision, Device.CPU)
         compute_time = time.time() - start_compute_time
         if verbose:
-            info(f"Coords extraction took {compute_time}")
+            logger.info(f"Coords extraction took {compute_time}")
 
         return time.time() - start_imload
     except KeyboardInterrupt:
@@ -147,13 +195,13 @@ def _multiprocess_wrapper(args):
     return compute_cpu(*args)
 
 
-def compute_cpu_multiprocess(paths, cores, progress_bar=None, verbose=False):
+def compute_cpu_multiprocess(paths, cores, precision: Precision, progress_bar=None, verbose=False):
     if not cores:
         raise ValueError("`cores` is required for `compute_cpu_multiprocess`")
 
     start_t = time.time()
     paths = [str(p) for p in paths]
-    args = map(lambda p: (p, verbose), paths)
+    args = map(lambda p: (p, precision, verbose), paths)
 
     with Pool(processes=cores) as pool:
         for _ in pool.imap_unordered(_multiprocess_wrapper, args):
@@ -165,14 +213,18 @@ def compute_cpu_multiprocess(paths, cores, progress_bar=None, verbose=False):
 def benchmark_cpu(
     batches: List[List[str]],
     batch_sizes: List[int],
+    precision: Precision,
     csv_file: str | None = None,
     n_cores=cpu_count(),
     verbose=False,
 ):
     f_args = locals()
     f_args["batches"] = "<Redacted: too long>"
-    debug("Starting CPU benchmark with parameters:")
-    debug(f_args)
+    logger.debug("Starting CPU benchmark with parameters:")
+    logger.debug(f_args)
+
+    if not precision:
+        raise ValueError("Precision MUST be specified.")
     # password = getpass.getpass("Enter your password to invalidate disk cache: ") # if stdin is not accessible it throws an exception
     if csv_file:
         try:
@@ -188,19 +240,19 @@ def benchmark_cpu(
                 size = batch_sizes[i]
                 if size in durations["batch_size"].values:
                     if verbose:
-                        debug(
+                        logger.debug(
                             f"Batch {i + 1} ({size} items) already computed. Skipping..."
                         )
                     continue
 
                 if verbose:
-                    info(f"Computing batch {i + 1}, {size} images.")
+                    logger.info(f"Computing batch {i + 1}, {size} images.")
                 with tqdm(
                     total=size, leave=False, desc=f"Batch {i + 1}: "
                 ) as progress_bar:
-                    t = compute_cpu_multiprocess(b, n_cores, progress_bar)
+                    t = compute_cpu_multiprocess(b, n_cores, progress_bar, precision)
                 if verbose:
-                    debug(f"Took {t} seconds.")
+                    logger.debug(f"Took {t} seconds.")
                 # drop_disk_cache(password, verbose=True)
                 durations = pd.concat(
                     objs=[
@@ -210,7 +262,7 @@ def benchmark_cpu(
                     ignore_index=True,
                 )
                 if verbose:
-                    debug(f"Batch {i + 1} done.")
+                    logger.debug(f"Batch {i + 1} done.")
             except KeyboardInterrupt:
                 break
     finally:
@@ -227,12 +279,13 @@ def benchmark_gpu(
     vram_commitment,
     batches: List[List[str]],
     batch_sizes: List[int],
+    precision: Precision,
     csv_file: str | None = None,
 ):
     f_args = locals()
     f_args["batches"] = "<Redacted: too long>"
-    debug("Starting GPU benchmark with parameters:")
-    debug(f_args)
+    logger.debug("Starting GPU benchmark with parameters:")
+    logger.debug(f_args)
     if csv_file:
         try:
             durations = pd.read_csv(csv_file, index_col=False)
@@ -252,12 +305,12 @@ def benchmark_gpu(
             try:
                 size = batch_sizes[i]
                 if size in durations["batch_size"].values:
-                    debug(f"Batch {i + 1} ({size} items) already computed. Skipping...")
+                    logger.debug(f"Batch {i + 1} ({size} items) already computed. Skipping...")
                     continue
 
-                info(f"Computing batch {i + 1}, {size} images.")
+                logger.info(f"Computing batch {i + 1}, {size} images.")
                 t = compute_gpu(b, vram_commitment)
-                debug(f"Took {t} seconds.")
+                logger.debug(f"Took {t} seconds.")
                 # drop_disk_cache(password, verbose=True)
                 # cuda_info = nvmlDeviceGetMemoryInfo(cuda_d)
                 durations = pd.concat(
@@ -274,7 +327,7 @@ def benchmark_gpu(
                     ],
                     ignore_index=True,
                 )
-                debug(f"Batch {i + 1} done.")
+                logger.debug(f"Batch {i + 1} done.")
             except KeyboardInterrupt:
                 break
     finally:
@@ -287,57 +340,64 @@ def benchmark_gpu(
 
 def compute_hybrid(
     cpu_split: float,
-    n_cores,
-    vram_commitment,
+    n_cores: int,
+    vram_commitment: float,
+    precision: Precision,
     batches: List[List[str]],
     batch_sizes: List[int],
     csv_file: str | None = None,
 ):
     f_args = locals()
     f_args["batches"] = "<Redacted: too long>"
-    debug("Starting HYBRID benchmark with parameters:")
-    debug(f_args)
+    logger.debug("Starting HYBRID benchmark with parameters:")
+    logger.debug(f_args)
+
+    if not precision:
+        raise ValueError("Precision MUST be specified.")
 
     if csv_file:
         try:
             durations = pd.read_csv(csv_file, index_col=False)
         except FileNotFoundError:
-            durations = pd.DataFrame(
-                [], columns=["batch_size", "duration", "vram_usage"], index=None
-            )
+            durations = pd.DataFrame([], columns=["batch_size", "duration"], index=None)
     else:
-        durations = pd.DataFrame(
-            [], columns=["batch_size", "duration", "vram_usage"], index=None
-        )
+        durations = pd.DataFrame([], columns=["batch_size", "duration"], index=None)
 
     try:
         for i, b in enumerate(batches):
             size = len(b)
             if size == 1:
-                raise ValueError("Cannot split batches of length 1, they'd only be computed by the GPU.")
+                raise ValueError(
+                    "Cannot split batches of length 1, they'd only be computed by the GPU."
+                )
             try:
-                split_idx = int(size * cpu_split) # floor
+                split_idx = int(size * cpu_split)  # floor
                 cpu_batch = b[:split_idx]
                 gpu_batch = b[split_idx:]
 
                 if size in durations["batch_size"].values:
-                    debug(f"Batch {i + 1} ({size} items) already computed. Skipping...")
+                    logger.debug(f"Batch {i + 1} ({size} items) already computed. Skipping...")
                     continue
 
-                info(f"Computing batch {i + 1}, {size} images.")
+                logger.info(f"Computing batch {i + 1}, {size} images.")
 
                 start_time = time.time()
                 if cpu_batch:
-                    def _run_cpu(cores, batch, f):
-                        return f(batch, cores)
-                    cpu_thread = threading.Thread(target=_run_cpu, args=(n_cores, cpu_batch, compute_cpu_multiprocess))
+
+                    def _run_cpu(cores, batch, precision, f):
+                        return f(batch, cores, precision)
+
+                    cpu_thread = threading.Thread(
+                        target=_run_cpu,
+                        args=(n_cores, cpu_batch, precision, compute_cpu_multiprocess),
+                    )
                     cpu_thread.start()
                 if gpu_batch:
-                    _ = compute_gpu(gpu_batch, vram_commitment)
+                    _ = compute_gpu(gpu_batch, vram_commitment, precision)
                 if cpu_batch:
                     cpu_thread.join()
                 t = time.time() - start_time
-                debug(f"Took {t} seconds.")
+                logger.debug(f"Took {t} seconds.")
                 # drop_disk_cache(password, verbose=True)
                 # cuda_info = nvmlDeviceGetMemoryInfo(cuda_d)
                 durations = pd.concat(
@@ -368,22 +428,10 @@ def compute_hybrid(
         else:
             return durations
 
-class TqdmHandler(logging.Handler):
-    def emit(self, record):
-        tqdm.write(self.format(record))
 
 
 
 if __name__ == "__main__":
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.DEBUG)
-    file_handler = logging.FileHandler("performance.log", mode='a')
-    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s', datefmt='%H:%M:%S'))
-    logger.addHandler(file_handler)
-    logger.addHandler(TqdmHandler())
-
-    logger.info("")
-    logger.info(f"{datetime.now()}")
 
     batch_sizes = [
         # 1,
@@ -417,7 +465,7 @@ if __name__ == "__main__":
         path for path_group in batches for path in path_group
     ]  # total_paths = [element for sublist in nested_list for element in sublist]
     paths_len = len(batches)
-    debug("Starting Benchmark.")
+    logger.debug("Starting Benchmark.")
 
     # val = benchmark_cpu(
     #     # csv_file="./compute_durations_cpu_multiprocess.csv",
@@ -433,11 +481,11 @@ if __name__ == "__main__":
     #     vram_commitment=14 * (1024**3)
     # )
 
-    n_cores = cpu_count() - 5
-    cpu_split = 0.6
+    n_cores = 11
+    cpu_split = 0.7
     vram_commitment = 14.5 * (1024**3)
     precision = Precision.FP32
-    csv_file = f"./compute_durations_hybrid_{n_cores}c_{cpu_split}cpu_{vram_commitment/ (1024**3)}GVRAM_{precision}.csv"
+    csv_file = f"./compute_durations_hybrid_{n_cores}c_{cpu_split}cpu_{vram_commitment / (1024**3)}GVRAM_{precision}.csv"
 
     val = compute_hybrid(
         cpu_split=cpu_split,
@@ -446,7 +494,7 @@ if __name__ == "__main__":
         csv_file=csv_file,
         batches=batches,
         batch_sizes=batch_sizes,
-        # precision=precision
+        precision=precision
     )
 
     print(val)

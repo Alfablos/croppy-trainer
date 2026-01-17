@@ -11,18 +11,22 @@ import utils
 
 
 def build_csv(
-        root: str,
-        output: str,
-        images_ext: str,
-        labels_ext: str,
-        compute_corners=True,
-        check_normalization=True,
-        verbose=False
+    root: str,
+    output: str,
+    images_ext: str,
+    labels_ext: str,
+    compute_corners=True,
+    check_normalization=True,
+    verbose=False,
 ):
     if images_ext is None:
-        raise ValueError("Please, provide the extension for images. For example `.png` or `_img.png`")
+        raise ValueError(
+            "Please, provide the extension for images. For example `.png` or `_img.png`"
+        )
     if labels_ext is None:
-        raise ValueError("Please, provide the extension for labels. For example `.png` or `_lbl.png`")
+        raise ValueError(
+            "Please, provide the extension for labels. For example `.png` or `_lbl.png`"
+        )
 
     if not os.path.exists(root):
         raise ValueError(f"Root path {root} does not exist.")
@@ -46,10 +50,7 @@ def build_csv(
 
     for image, label in tqdm(zip(images, labels, strict=True), total=len(images)):
         try:
-            row = {
-                'image_path': image,
-                'label_path': label
-            }
+            row = {"image_path": image, "label_path": label}
 
             if compute_corners:
                 f = cv2.imread(filename=str(label), flags=cv2.IMREAD_GRAYSCALE)
@@ -58,7 +59,10 @@ def build_csv(
                 fields = ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"]
                 for coord_name, value in zip(fields, coords):
                     if value > 1 and check_normalization:
-                        print(f"Warning: label {label} has {coord_name} coordinate with a value > 1 ({value}): {coords}\nYou may want to check your normalization algorithm.", file=sys.stderr)
+                        print(
+                            f"Warning: label {label} has {coord_name} coordinate with a value > 1 ({value}): {coords}\nYou may want to check your normalization algorithm.",
+                            file=sys.stderr,
+                        )
 
                     row[coord_name] = value
 
@@ -80,36 +84,37 @@ def build_csv(
         save_to_csv(rows, str(output))
 
     if verbose:
-        print(f"Done saving labels {'with coordinates' if compute_corners else ''} to {output}")
+        print(
+            f"Done saving labels {'with coordinates' if compute_corners else ''} to {output}"
+        )
 
 
-
-def save_to_csv(rows: list[dict], dst: str, mode='a'):
+def save_to_csv(rows: list[dict], dst: str, mode="a"):
     dst_exists = os.path.exists(dst)
 
     print("Saving to csv")
 
-    if dst_exists and not mode == 'a':
-        raise ValueError("Refusing to write to exising CSV file when mode is not 'append'.")
+    if dst_exists and not mode == "a":
+        raise ValueError(
+            "Refusing to write to exising CSV file when mode is not 'append'."
+        )
 
-    df = pd.DataFrame(rows, copy=False) # !! Do not reset row yet!
+    df = pd.DataFrame(rows, copy=False)  # !! Do not reset row yet!
     df.to_csv(
         dst,
         mode=mode,
-        header=not dst_exists, # headers only written the first time
-        index=False
-)
-
-
+        header=not dst_exists,  # headers only written the first time
+        index=False,
+    )
 
 
 if __name__ == "__main__":
     build_csv(
-        root='/home/antonio/Downloads/extended_smartdoc_dataset/Extended Smartdoc dataset/train',
-        images_ext='_in.png',
-        labels_ext='_gt.png',
-        output='./datatest.csv',
+        root="/home/antonio/Downloads/extended_smartdoc_dataset/Extended Smartdoc dataset/train",
+        images_ext="_in.png",
+        labels_ext="_gt.png",
+        output="./datatest.csv",
         compute_corners=True,
         check_normalization=True,
-        verbose=True
+        verbose=True,
     )

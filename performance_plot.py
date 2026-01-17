@@ -16,19 +16,22 @@ def plot_csvs(paths: List[Path]):
         ax.plot(
             df["duration"],
             df["batch_size"],
-            label=p.name
+            label=p.name,
         )
         ax.legend()
 
     fig.savefig("test.png")
-
+    plt.close()
 
 
 if __name__ == "__main__":
     root = Path("./")
-    with tqdm(total=10, leave=True, desc="Sleeping") as bar:
+    with tqdm(total=10, leave=True, desc="Sleeping", initial=1) as bar:
         while True:
-            plot_csvs(list(root.glob("**/compute_durations_*.csv", case_sensitive=True)))
+            plot_csvs(
+                list(root.glob("**/compute_durations_*.csv", case_sensitive=True))
+            )
+            bar.reset()
             for _ in range(10):
                 sleep(1)
                 bar.update(1)

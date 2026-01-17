@@ -1,4 +1,5 @@
 import time
+from enum import Enum
 from typing import List
 
 from PIL import Image
@@ -9,6 +10,49 @@ from numpy.typing import NDArray
 import torch
 
 from common import Device
+
+
+class Precision(Enum):
+    FP32 = 4  # 4 bytes
+    FP16 = 2
+    UINT8 = 1
+
+    def __str__(self):
+        if self == Precision.FP32:
+            return "Float32"
+        elif self == Precision.FP16:
+            return "Float16"
+        elif self == Precision.UINT8:
+            return "UINT8"
+        else:
+            raise NotImplementedError(
+                f"No type associated with {self} for CPU. This is a bug!"
+            )
+
+    def to_type_cpu(self) -> np.dtype:
+        if self == Precision.FP32:
+            return np.float32()
+        elif self == Precision.FP16:
+            return np.float16()
+        elif self == Precision.UINT8:
+            return np.uint8()
+        else:
+            raise NotImplementedError(
+                f"No type associated with {self} for CPU. This is a bug!"
+            )
+
+    def to_type_gpu(self) -> torch.dtype:
+        if self == Precision.FP32:
+            return torch.float32
+        elif self == Precision.FP16:
+            return torch.float16
+        elif self == Precision.UINT8:
+            return torch.uint8
+        else:
+            raise NotImplementedError(
+                f"No type associated with {self} for GPU. This is a bug!"
+            )
+
 
 def find_max_dims(paths: List[str]):
     """
@@ -21,15 +65,18 @@ def find_max_dims(paths: List[str]):
     for p in paths:
         with Image.open(p) as img:
             w, h = img.size
-            if w > max_w: max_w = w
-            if h > max_h: max_h = h
+            if w > max_w:
+                max_w = w
+            if h > max_h:
+                max_h = h
 
     return max_h, max_w
 
 
-
 def coords_from_segmentation_mask(
-    mask: NDArray | torch.Tensor, device: Device = Device.CPU
+    mask: NDArray | torch.Tensor,
+    precision: Precision,
+    device: Device = Device.CPU,
 ):
     """
     Computes the coordinates of a PERFECTLY RECTANGULARE/SQUARED
@@ -39,6 +86,9 @@ def coords_from_segmentation_mask(
 
     :returns coords: a torch tensor of 8 NORMALIZED points
     """
+    if not precision:
+        raise ValueError("Precision MUST be set.")
+
     gpu = device is not Device.CPU
 
     if isinstance(mask, np.ndarray) and gpu:
@@ -46,20 +96,26 @@ def coords_from_segmentation_mask(
     if isinstance(mask, torch.Tensor) and not gpu:
         raise ValueError("if `gpu` is set to `False` you need to pass a Numpy ndarray.")
 
-    ## Normalization check ##
-    bad_norm = False
+    ## Normalization check (only for FP32 and FP16) ##
+    bad_norm = (False, None)
+    if (
+        precision != Precision.UINT8
+    ):  # Normalization of images shouldn't happen for uint8
+        # This also covers for integer overflow due to selecting the wrong integer type
+        # int8 range from -127 to 127 so a value of 255 overflows to -1
+        if gpu:
+            if (mask > 1.0).any() or (mask < 0.0).any():
+                bad_norm = (True, 'gpu')
+        else:
+            if np.any(mask > 1) or np.any(mask < 0):
+                bad_norm = (True, 'cpu')
 
-    if gpu:
-        if (mask > 1.0).any() or (mask < 0.0).any():
-            bad_norm = True
-    else:
-        if np.any(mask > 1) or np.any(mask < 0):
-            bad_norm = True
+        if bad_norm[0]:
+            raise ValueError(
+                f"Mask values should be >= 0 and >= 1. You may want to check your normalization algorithm. (device={bad_norm[1]}, dtype={mask.dtype}, precision={precision})"
+            )
 
-    if bad_norm:
-        raise ValueError(
-            "Mask values should be >= 0 and >= 1. You may want to check your normalization algorithm."
-        )
+    threshold = 127 if precision == Precision.UINT8 else 0.5
 
     h, w = mask.shape
 
@@ -70,14 +126,14 @@ def coords_from_segmentation_mask(
     if gpu:
         # select the white pixels
         white_xy = torch.nonzero(
-            mask > 0.5, as_tuple=False
+            mask > threshold, as_tuple=False
         )  # [(y, x), ...] NOT [(x, y), ...]
         # this returns a (n_points, 2) matrix, each point has an x and a y column
         white_xy = torch.flip(white_xy, dims=[1]).float()  # now [(x, y), ...]
         if white_xy.shape[0] == 0:
             raise ValueError("Mask is completely black.")
     else:
-        ys, xs = np.where(mask > 0.5)
+        ys, xs = np.where(mask > threshold)
         if len(xs) == 0:
             raise ValueError("Mask is completely black.")
         white_xy = np.column_stack((xs, ys))  # I love this!

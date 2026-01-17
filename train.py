@@ -18,11 +18,9 @@ import data
 from common import Device
 
 
-
 IMAGE_SIZE: int = 512
 DEFAULT_WEIGHTS = visionmodels.ResNet18_Weights.DEFAULT
 BATCH_SIZE: int = 16
-
 
 
 class CroppyTrainer(nn.Module):
@@ -51,10 +49,7 @@ class SmartDocDatasetResnet(Dataset):
     supported_img_formats = ["png"]
 
     def __init__(self, image_root, model_weigths):
-
         super().__init__()
-
-
 
         self.image_paths = "image_paths"
         self.labels = "labels"
@@ -159,12 +154,9 @@ def train(
 
 
 if __name__ == "__main__":
-
-
-
     weights = visionmodels.ResNet18_Weights.DEFAULT
 
-    dataset = SmartDocDatasetResnet(image_root='', model_weigths=weights)
+    dataset = SmartDocDatasetResnet(image_root="", model_weigths=weights)
 
     train(
         dataset=dataset,

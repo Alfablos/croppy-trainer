@@ -3,8 +3,10 @@ from enum import Enum
 import numpy as np
 import torch
 
+
 def device_from_obj(x: torch.Tensor | np.ndarray):
     return x.device
+
 
 class Device(Enum):
     CPU = "cpu"
