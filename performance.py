@@ -203,39 +203,32 @@ def benchmark_gpu(vram_commitment=10*(1024**3)):
 
     # nvmlInit()
     # cuda_d = nvmlDeviceGetHandleByIndex(cuda_device)
-    for i, b in enumerate(batches):
-        try:
-            size = batch_sizes[i]
-            if size in durations["batch_size"].values:
-                print(f"Batch {i + 1} ({size} items) already computed. Skipping...")
-                continue
-
-            print(f"Computing batch {i + 1}, {size} images.")
-            t = compute_gpu(b, vram_commitment)
-            print(f"Took {t} seconds.")
-            # drop_disk_cache(password, verbose=True)
-            # cuda_info = nvmlDeviceGetMemoryInfo(cuda_d)
-            durations = pd.concat(
-                objs=[durations, pd.DataFrame({
-                    'batch_size': [size],
-                    'duration': [t],
-                    # cannot use vram_usage due to del tensor in compute_gpu()
-                    # 'vram_usage': cuda_info.used
-                })],
-                ignore_index=True
-            )
-            print(f"Batch {i + 1} done.")
-        except KeyboardInterrupt:
-            break
     try:
-        durations.sort_values(by=["batch_size"], inplace=True)
-        durations.to_csv(
-            csv_file,
-            mode="w",
-            header=True,
-            index=False
-        )
-    except KeyboardInterrupt:
+        for i, b in enumerate(batches):
+            try:
+                size = batch_sizes[i]
+                if size in durations["batch_size"].values:
+                    print(f"Batch {i + 1} ({size} items) already computed. Skipping...")
+                    continue
+
+                print(f"Computing batch {i + 1}, {size} images.")
+                t = compute_gpu(b, vram_commitment)
+                print(f"Took {t} seconds.")
+                # drop_disk_cache(password, verbose=True)
+                # cuda_info = nvmlDeviceGetMemoryInfo(cuda_d)
+                durations = pd.concat(
+                    objs=[durations, pd.DataFrame({
+                        'batch_size': [size],
+                        'duration': [t],
+                        # cannot use vram_usage due to del tensor in compute_gpu()
+                        # 'vram_usage': cuda_info.used
+                    })],
+                    ignore_index=True
+                )
+                print(f"Batch {i + 1} done.")
+            except KeyboardInterrupt:
+                break
+    finally:
         durations.sort_values(by=["batch_size"], inplace=True)
         durations.to_csv(
             csv_file,
@@ -244,6 +237,9 @@ def benchmark_gpu(vram_commitment=10*(1024**3)):
             index=False
         )
 
+
+def compute_hybrid():
+    pass
 
 
 if __name__ == "__main__":

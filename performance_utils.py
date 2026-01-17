@@ -12,17 +12,17 @@ class Precision(Enum):
     FP16  = 2
     UINT8 = 1
 
-    def to_type_cpu(self):
+    def to_type_cpu(self) -> np.dtype:
         if self == Precision.FP32:
-            return np.float32()
+            return np.float32
         elif self == Precision.FP16:
-            return np.float16()
+            return np.float16
         elif self == Precision.UINT8:
-            return np.uint8()
+            return np.uint8
         else:
             raise NotImplementedError(f"No type associated with {self} for CPU. This is a bug!")
 
-    def to_type_gpu(self):
+    def to_type_gpu(self) -> torch.dtype:
         if self == Precision.FP32:
             return torch.float32
         elif self == Precision.FP16:
