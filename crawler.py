@@ -39,9 +39,9 @@ def crawl(
         labels_ext (str): Extension pattern to match label/segmentation mask files
             (e.g., `.png`, `_lbl.png`). Labels must match images in number and be pairable by
             their sorted order.
-        precision (Precision): Numerical precision for mask processing and coordinate computation.
+        precision (Precision): Target numerical precision for future training.
             Determines the dtype used when loading segmentation masks and affects normalization
-            behavior. Options are FP32, FP16, or UINT8.
+            behavior (normalization for Float32/Float16, none otherwise). Options are FP32, FP16, or UINT8.
         compute_corners (bool, optional): If True, computes normalized corner coordinates (x1, y1,
             x2, y2, x3, y3, x4, y4) from segmentation masks using `utils.coords_from_segmentation_mask`.
             If False, only saves image and label paths without coordinates. Defaults to True.
@@ -105,7 +105,7 @@ def crawl(
     save_chunk_size = 100
 
     if verbose:
-        progress = tqdm(total=len(images), desc="Pairing examples and labeld")
+        progress = tqdm(total=len(images), desc="Pairing examples and labels")
 
     for image, label in zip(images, labels, strict=True):
         try:
@@ -141,8 +141,6 @@ def crawl(
                 progress.update(1)
 
             if len(rows) >= save_chunk_size:
-                if verbose:
-                    print(f"Saving checkpoint to {output}")
                 save_to_csv(rows, str(output))
                 rows = []
 
@@ -163,8 +161,6 @@ def crawl(
 
 def save_to_csv(rows: list[dict], dst: str, mode="a"):
     dst_exists = os.path.exists(dst)
-
-    print("Saving to csv")
 
     if dst_exists and not mode == "a":
         raise ValueError(

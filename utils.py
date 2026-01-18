@@ -79,8 +79,6 @@ class Precision(Enum):
             )
 
 
-
-
 def find_max_dims(paths: List[str]):
     """
     Given a list of image paths it returns the biggest height and biggest width found
