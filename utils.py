@@ -1,6 +1,7 @@
+from pandas.tests.arrays.masked.test_arrow_compat import pa
 import time
 from enum import Enum
-from typing import List
+from typing import List, Any, Literal
 
 from PIL import Image
 from tqdm import tqdm
@@ -10,6 +11,18 @@ from numpy.typing import NDArray
 import torch
 
 from common import Device
+
+
+def resize_img(img, h: int, w: int):
+    """
+    Resizes an image using the CPU to the given shape
+    parameters:
+        :param img: ndarray
+        :param h:   int
+        :param w:   int
+    """
+
+    return cv2.resize(img, (int(w), int(h)))
 
 
 class Precision(Enum):
@@ -29,7 +42,19 @@ class Precision(Enum):
                 f"No type associated with {self} for CPU. This is a bug!"
             )
 
-    def to_type_cpu(self) -> np.dtype:
+    @staticmethod
+    def from_str(s: str):
+        l_s = s.lower()
+        if l_s in ["float32", "fp32", "f32"]:
+            return Precision.FP32
+        elif l_s in ["float16", "fp16", "f16"]:
+            return Precision.FP16
+        elif l_s in ["uint8", "u8", "int8", "i8"]:
+            return Precision.UINT8
+        else:
+            raise NotImplementedError(f"No precision type associated with {s}")
+
+    def to_type_cpu(self) -> np.dtype[Any]:
         if self == Precision.FP32:
             return np.float32()
         elif self == Precision.FP16:
@@ -52,6 +77,8 @@ class Precision(Enum):
             raise NotImplementedError(
                 f"No type associated with {self} for GPU. This is a bug!"
             )
+
+
 
 
 def find_max_dims(paths: List[str]):
@@ -105,10 +132,10 @@ def coords_from_segmentation_mask(
         # int8 range from -127 to 127 so a value of 255 overflows to -1
         if gpu:
             if (mask > 1.0).any() or (mask < 0.0).any():
-                bad_norm = (True, 'gpu')
+                bad_norm = (True, "gpu")
         else:
             if np.any(mask > 1) or np.any(mask < 0):
-                bad_norm = (True, 'cpu')
+                bad_norm = (True, "cpu")
 
         if bad_norm[0]:
             raise ValueError(

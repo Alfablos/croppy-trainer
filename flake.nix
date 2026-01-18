@@ -32,13 +32,15 @@
           [
             numpy
             pandas
+            pytest
+            pyarrow
             torch-bin
             torchvision-bin
             pillow
             opencv-python-headless
             matplotlib
             tqdm
-            pynvml
+            lmdb
           ]
           ++ (gpuDependantPackages pkgs)
         );

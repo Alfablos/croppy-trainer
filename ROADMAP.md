@@ -1,5 +1,7 @@
 # Roadmap
 
+1. Figure out precompute and build_csv
+
 ## Performance
 
 1. ~~Add .to_type_cpu() and .to_type_gpu() to Precision returning types (E.g. `np.float32()` depending on precision and device)~~

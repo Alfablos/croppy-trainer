@@ -47,6 +47,7 @@ class TqdmHandler(logging.Handler):
     def emit(self, record):
         tqdm.write(self.format(record))
 
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 file_handler = logging.FileHandler("performance.log", mode="a")
@@ -75,12 +76,8 @@ def batch_to_gpu(
     if not precision:
         raise ValueError("Precision MUST be specified")
 
-
     n = len(paths)
-    tensor = torch.zeros(
-        size=(n, max_h, max_w),
-        dtype=precision.to_type_gpu()
-    )
+    tensor = torch.zeros(size=(n, max_h, max_w), dtype=precision.to_type_gpu())
 
     for i, p in enumerate(paths):
         # handle mixed dataset
@@ -89,7 +86,9 @@ def batch_to_gpu(
         else:
             img = p
 
-        assert img.dtype == np.uint8(), "Should have a np.ndarray of np.uint8() at this point..."
+        assert img.dtype == np.uint8(), (
+            "Should have a np.ndarray of np.uint8() at this point..."
+        )
 
         h, w = img.shape
 
@@ -153,7 +152,9 @@ def compute_gpu(batch: List[str], vram_commitment, precision):
                 )
                 minibatch_size = tensor.shape[0]
                 for img in range(minibatch_size):
-                    _ = coords_from_segmentation_mask(tensor[img], device=Device.CUDA, precision=precision)
+                    _ = coords_from_segmentation_mask(
+                        tensor[img], device=Device.CUDA, precision=precision
+                    )
                     workbar.update(1)
                 del tensor
     return time.time() - start
@@ -195,7 +196,9 @@ def _multiprocess_wrapper(args):
     return compute_cpu(*args)
 
 
-def compute_cpu_multiprocess(paths, cores, precision: Precision, progress_bar=None, verbose=False):
+def compute_cpu_multiprocess(
+    paths, cores, precision: Precision, progress_bar=None, verbose=False
+):
     if not cores:
         raise ValueError("`cores` is required for `compute_cpu_multiprocess`")
 
@@ -305,7 +308,9 @@ def benchmark_gpu(
             try:
                 size = batch_sizes[i]
                 if size in durations["batch_size"].values:
-                    logger.debug(f"Batch {i + 1} ({size} items) already computed. Skipping...")
+                    logger.debug(
+                        f"Batch {i + 1} ({size} items) already computed. Skipping..."
+                    )
                     continue
 
                 logger.info(f"Computing batch {i + 1}, {size} images.")
@@ -376,7 +381,9 @@ def compute_hybrid(
                 gpu_batch = b[split_idx:]
 
                 if size in durations["batch_size"].values:
-                    logger.debug(f"Batch {i + 1} ({size} items) already computed. Skipping...")
+                    logger.debug(
+                        f"Batch {i + 1} ({size} items) already computed. Skipping..."
+                    )
                     continue
 
                 logger.info(f"Computing batch {i + 1}, {size} images.")
@@ -429,10 +436,7 @@ def compute_hybrid(
             return durations
 
 
-
-
 if __name__ == "__main__":
-
     batch_sizes = [
         # 1,
         10,
@@ -484,7 +488,7 @@ if __name__ == "__main__":
     n_cores = 11
     cpu_split = 0.7
     vram_commitment = 14.5 * (1024**3)
-    precision = Precision.FP32
+    precision = Precision.FP16
     csv_file = f"./compute_durations_hybrid_{n_cores}c_{cpu_split}cpu_{vram_commitment / (1024**3)}GVRAM_{precision}.csv"
 
     val = compute_hybrid(
@@ -494,7 +498,7 @@ if __name__ == "__main__":
         csv_file=csv_file,
         batches=batches,
         batch_sizes=batch_sizes,
-        precision=precision
+        precision=precision,
     )
 
     print(val)
