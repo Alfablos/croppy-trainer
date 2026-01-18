@@ -18,6 +18,7 @@ import data
 from data import SmartDocDatasetResnet
 from common import Device
 
+x = 5 / 0
 
 IMAGE_SIZE: int = 512
 DEFAULT_WEIGHTS = visionmodels.ResNet18_Weights.DEFAULT

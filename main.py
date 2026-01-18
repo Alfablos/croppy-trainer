@@ -19,15 +19,6 @@ def run_build_csv(args):
     )
 
 
-# def run_precompute_examples(args):
-#     dataset = SmartDocDatasetResnet(
-#         image_paths=args.image_paths.to_list(),
-#         labels=labels.to_numpy(),
-#         target_h=512,
-#         target_w=384,
-#         precompute_to="examples.lmdb"
-#     )
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="croppy-trainer")
