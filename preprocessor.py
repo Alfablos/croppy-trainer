@@ -14,11 +14,12 @@ import numpy as np
 import pandas as pd
 
 
-from utils import resize_img, Precision
+from utils import resize_img, Precision, Architecture
 from utils import coords_from_segmentation_mask
 
 
 def precompute(
+    architecture: Architecture,
     output_dir: str,
     # heights of the training images
     target_h: int,

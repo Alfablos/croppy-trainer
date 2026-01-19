@@ -25,6 +25,13 @@ def resize_img(img, h: int, w: int, interpolation=cv2.INTER_AREA):
     return cv2.resize(img, (int(w), int(h)), interpolation=interpolation)
 
 
+class Architecture(Enum):
+    RESNET = "resnet"
+    UNET = "unet"
+    
+    def preprocess()
+
+
 class Precision(Enum):
     FP32 = 4  # 4 bytes
     FP16 = 2
