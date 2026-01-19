@@ -1,3 +1,8 @@
+from utils import resize_img
+import pickle
+import cv2
+from sympy.physics.quantum.trace import Tr
+from crawler import crawl
 import os
 import csv
 from tqdm import tqdm
@@ -10,12 +15,13 @@ import pandas as pd
 
 
 def precompute(
-    csv_path: str | None,
-    output_path: str,
+    output_dir: str,
     # heights of the training images
     target_h: int,
     # weight of the training images
     target_w: int,
+    csv_path: str | None = None,
+    crawler_config: dict | None = None,
     # Every how many iterations data is written to disk
     commit_freq: int = 100,
     # No actual computation
@@ -31,51 +37,99 @@ def precompute(
     """
     Performs a resize and stores resized images in a LMDB Database at :path
     """
-    if not path.endswith(".lmdb"):
-        print(f"Warning: saving a LMDB file without the `.lmdb` extension.")
-    if os.path.exists(path):
-        raise FileExistsError(
-            f"The path '{path}' already exists. Refusing to continue."
-        )
+    
+    if csv_path is None and crawler_config is None:
+        raise ValueError("At least one of `csv_path` or `crawler_config` must be specified.")
+    
+    if csv_path is not None:
+        # Read from CSV
+        data = pd.read_csv(csv_path)
+    else: # crawler_config is not None
+        crawler_output = f"./dataset{crawler_config["precision"]}.csv"
+        crawler_config["output"] = crawler_output
+        
+        try:
+            crawl(**crawler_config)
+        except Exception as e:
+            print(e)
+            exit(3)
+        data = pd.read_csv(crawler_output)
+        
+    output_dir = output_dir.rstrip('/')
+    ## Preflight checks
+    # Filesystem is ready
+    if os.path.exists(output_dir) and not os.path.isdir(output_dir):
+        raise FileExistsError(f"Destination {output_dir} exists but is a file.")
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    data_length = data.shape[0]
+
     single_image_size: int = target_h * target_w * 3  # RGB
     total_map_size: int = int(
-        len(self) * single_image_size * 1.2
+        data_length * single_image_size * 1.2
     )  # 1.2 is a safety margin
-    print(f"Allocating {total_map_size / (1024**3)} GB for the lmdb store.")
+    
+    raise Exception("Add the coord size if compute_coord=True")
+        
+    print(f"Allocating {total_map_size / (1024**3):.2f} GB for the lmdb store.")
+    
+    db_path = output_dir + "/data.lmdb"
+    index_path = output_dir + "/index.csv"
+    
+    if dry_run:
+        exit(0)
+    
 
     # initialize lmdb at `path`
-    env = lmdb.open(path, total_map_size)
+    env = lmdb.open(db_path, total_map_size)
 
     # Write each example in the db after converting it to RGB
-    print(f"Creating LMDB store at {path}.")
+    print(f"Creating LMDB store at {db_path}.")
     commit_freq = 100
-    csv_f = open(f"{path}_index.csv", mode="w", newline="")
+    csv_f = open(f"{index_path}", mode="w", newline="")
     csv_writer = csv.writer(csv_f)
-    csv_writer.writerow(
-        ["index", "path"] + [f"c{k}" for k in range(8)]
-    )  # index, path, + labels (8 coords of the corners)
+    if compute_coords:
+        csv_writer.writerow(
+            ["index", "path"] + [f"c{k}" for k in range(8)]
+        )  # index, path, + labels (8 coords of the corners)
+    else:
+        csv_writer.writerow(["index", "path"])
+        
     csv_index = 0  # NOT updated when images fail to convert
-    have_coords = self.labels.shape[1] == 8
+    have_coords = data.shape[1] == 10
 
     transaction = env.begin(write=True)
     try:
-        for i, path in enumerate(
-            tqdm(self.image_paths, position=0, desc="Saving precomputed examples")
+        for i, row in enumerate(
+            tqdm(data.iterrows(), desc="Saving precomputed examples")
         ):
-            imdata = cv2.imread(path, cv2.IMREAD_COLOR_RGB)
+            impath = row["image_path"]
+            lpath = row["label_path"]
+            
+            imdata = cv2.imread(impath, cv2.IMREAD_COLOR_RGB)
             if imdata is None:
-                print(f"Couldn't read image at {path}.")
-                continue
+                if not strict:
+                    print(f"Couldn't read image at {impath}. Skipping...")
+                    continue
+                else:
+                    print(f"Couldn't read image at {impath} and strict mode is enforced. Exiting.")
+                    exit(3)
 
-            resized = resize_img(imdata, self.target_h, self.target_w)
+            resized = resize_img(imdata, target_h, target_w)
             if resized is None:
-                print(f"Couldn't resize image at {path}.")
+                if not strict:
+                    print(f"Couldn't resize image at {impath}. Skipping...")
+                    continue
+                else:
+                    print(f"Couldn't resize image at {impath} and strict mode is enforced. Exiting.")
+                    exit(3)
             # resized_rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
             bytes = pickle.dumps(resized)
-            key = str(i).encode("ascii")
+            key = str(csv_index).encode("ascii")
             transaction.put(key, bytes)
 
-            exit(0)
+            csv_index += 1
 
             # i=244 => index[44]
             index[i % commit_freq] = os.path.basename(path)
@@ -102,5 +156,19 @@ def precompute(
     finally:
         env.close()
 
-    self.computed = True
     print("Precomputation complete.")
+    
+
+    
+if __name__ == "__main__":
+    precompute(
+        output_dir="precomp_test",
+        target_h=512,
+        target_w=384,
+        compute_coords=True,
+        csv_path="dataset.csv",
+        crawler_config=None,
+        dry_run=True,
+        verbose=True,
+        strict=True
+    )
