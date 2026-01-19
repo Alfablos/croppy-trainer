@@ -13,7 +13,7 @@ import torch
 from common import Device
 
 
-def resize_img(img, h: int, w: int):
+def resize_img(img, h: int, w: int, interpolation=cv2.INTER_AREA):
     """
     Resizes an image using the CPU to the given shape
     parameters:
@@ -22,7 +22,7 @@ def resize_img(img, h: int, w: int):
         :param w:   int
     """
 
-    return cv2.resize(img, (int(w), int(h)))
+    return cv2.resize(img, (int(w), int(h)), interpolation=interpolation)
 
 
 class Precision(Enum):
