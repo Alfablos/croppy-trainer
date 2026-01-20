@@ -55,11 +55,10 @@ class SmartDocDataset(Dataset):
         if in_memory_cache:
             self.cache = {}
 
-
     def __len__(self):
         env = self._get_or_init_env()
         with env.begin(write=False) as transaction:
-            return transaction.get(b'__len__')
+            return int.from_bytes(transaction.get('__len__'.encode("ascii")))
 
     
     def __getitems__(self, i):
@@ -73,6 +72,7 @@ class SmartDocDataset(Dataset):
     
     def _get_or_init_env(self):
         if not self.env:
+            print("Initializing new LMDB...")
             self.env = lmdb.open(
                 self.lmdb_path,
                 readonly=True,
@@ -80,6 +80,7 @@ class SmartDocDataset(Dataset):
                 readahead=False,
                 meminit=False
             )
+            print("Done")
         return self.env
     
 

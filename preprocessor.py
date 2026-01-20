@@ -197,7 +197,8 @@ def precompute(
                 
                 db_index += 1
             
-            transaction.put('__len__'.encode("ascii"), (db_index + 1).to_bytes(4, "big"))
+            transaction.put('__len__'.encode("ascii"), (db_index + 1).to_bytes(32, "big"))
+            transaction.commit()
                 
         
         except Exception as e:
