@@ -1,7 +1,8 @@
 from pandas.tests.arrays.masked.test_arrow_compat import pa
 import time
 from enum import Enum
-from typing import List, Any, Literal
+from typing import List, Any, Literal, Never
+from itertools import chain
 
 from PIL import Image
 from tqdm import tqdm
@@ -11,6 +12,10 @@ from numpy.typing import NDArray
 import torch
 
 from common import Device
+
+def assert_never(arg: Never) -> Never:
+    raise AssertionError("Expected code to be unreachable")
+
 
 
 def resize_img(img, h: int, w: int, interpolation=cv2.INTER_AREA):
@@ -24,12 +29,6 @@ def resize_img(img, h: int, w: int, interpolation=cv2.INTER_AREA):
 
     return cv2.resize(img, (int(w), int(h)), interpolation=interpolation)
 
-
-class Architecture(Enum):
-    RESNET = "resnet"
-    UNET = "unet"
-    
-    def preprocess()
 
 
 class Precision(Enum):
