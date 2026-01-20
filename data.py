@@ -31,8 +31,6 @@ H = 512
 W = 384
 
 
-
-
 # class SmartDocDatasetResnet(Dataset):
 #     supported_img_formats = ["png"]
 
@@ -91,7 +89,9 @@ W = 384
 
 if __name__ == "__main__":
     crawl(
-        root=Path("/home/antonio/Downloads/extended_smartdoc_dataset/Extended Smartdoc dataset/train"),
+        root=Path(
+            "/home/antonio/Downloads/extended_smartdoc_dataset/Extended Smartdoc dataset/train"
+        ),
         images_ext="_in.png",
         labels_ext="_gt.png",
         output="./datatest.csv",

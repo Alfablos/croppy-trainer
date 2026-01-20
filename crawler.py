@@ -24,13 +24,10 @@ def crawl(
     verbose=False,
 ):
     """
-    Crawls a directory structure to find and pair image files with their corresponding label files, optionally computes document corner coordinates from segmentation masks, and saves the results to a CSV file.
-
-    It traverses the directory tree recursively, pairs images with their labels based on matching paths, and can
-    compute normalized corner coordinates from binary segmentation masks.
+    Crawls a directory structure to find and pair image files with their corresponding label files, optionally computes normalized document corner coordinates from segmentation masks, and saves the results to a CSV file.
 
     The function implements checkpointing by saving intermediate results every 100 rows, and handles KeyboardInterrupt gracefully by saving any remaining processed rows before exiting.
-    
+
     Args:
         root (Path): Root directory path to search for image and label files. Must exist.
         output (str): Path to the output CSV file where results will be saved. The file must not already exist to  accidental overwrites.
@@ -121,7 +118,7 @@ def crawl(
 
                 coords = utils.coords_from_segmentation_mask(
                     mask, precision, device=Device.CPU
-                ).numpy()
+                )
                 fields = ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"]
                 for coord_name, value in zip(fields, coords):
                     if (

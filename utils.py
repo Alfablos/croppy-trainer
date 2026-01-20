@@ -13,9 +13,9 @@ import torch
 
 from common import Device
 
+
 def assert_never(arg: Never) -> Never:
     raise AssertionError("Expected code to be unreachable")
-
 
 
 def resize_img(img, h: int, w: int, interpolation=cv2.INTER_AREA):
@@ -28,7 +28,6 @@ def resize_img(img, h: int, w: int, interpolation=cv2.INTER_AREA):
     """
 
     return cv2.resize(img, (int(w), int(h)), interpolation=interpolation)
-
 
 
 class Precision(Enum):
@@ -108,7 +107,7 @@ def coords_from_segmentation_mask(
     mask: NDArray | torch.Tensor,
     precision: Precision,
     device: Device = Device.CPU,
-):
+) -> torch.Tensor | NDArray:
     """
     Computes the coordinates of a PERFECTLY RECTANGULARE/SQUARED
     mask which can also be rotated.
@@ -209,10 +208,7 @@ def coords_from_segmentation_mask(
         norm_br = [br[0] / w, br[1] / h]
         norm_bl = [bl[0] / w, bl[1] / h]
 
-        return torch.tensor(
-            np.array([norm_tl, norm_tr, norm_br, norm_bl]).flatten(),
-            dtype=torch.float32,
-        )
+        return np.array([norm_tl, norm_tr, norm_br, norm_bl]).flatten()
 
 
 if __name__ == "__main__":

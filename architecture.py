@@ -1,18 +1,37 @@
+from typing import Callable, TypeVar
 import cv2
 from utils import assert_never, resize_img, Precision, coords_from_segmentation_mask
 from enum import Enum
+from numpy.typing import NDArray
+
+class ProcessResult():
+    def __init__(self, image, label: NDArray):
+        self.image = image,
+        self.label = label
+
 
 class Architecture(Enum):
     RESNET = "resnet"
     UNET = "unet"
     
-    def get_transform_logic(self):
+    def get_transform_logic(self) -> Callable[[dict, int, int, Precision], ProcessResult]:
         if self == Architecture.RESNET:
             return self._transform_resnet
         elif self == Architecture.UNET:
             return self._transform_unet
         else:
             assert_never(self)
+
+    @staticmethod
+    def from_str(s: str):
+        l_s = s.lower()
+        if l_s == 'resnet':
+            return Architecture.RESNET
+        elif l_s in ['u-net', 'unet']:
+            return Architecture.UNET
+        else:
+            raise NotImplementedError(f"No precision type associated with {s}")
+
     
     @staticmethod
     def _process_image(path, h, w, color: bool = True, resize: bool = True, interpolation=cv2.INTER_AREA):    
@@ -36,13 +55,13 @@ class Architecture(Enum):
             coords = [row[f"{axis}{i}"] for i in range(1, 5) for axis in ('x', 'y')]
         elif "label_path" in row: # compute cords from mask
             mask = cv2.imread(row["label_path"], cv2.IMREAD_GRAYSCALE)
-            coords = coords_from_segmentation_mask(mask, precision)
+            coords: NDArray = coords_from_segmentation_mask(mask, precision)
         else: raise ValueError(f"Coordinates for ResNet image {[row['image_path']]} were not provided and the data map has no label path to compute them")
         
-        return img_resized, coords
+        return ProcessResult(img_resized, coords)
 
     @staticmethod
-    def _transform_unet(row, h: int, w: int, precision: Precision):
+    def _transform_unet(row, h: int, w: int, precision: Precision) -> ProcessResult:
         ipath = row["image_path"]
         mpath = row['label_path']
         
@@ -57,7 +76,7 @@ class Architecture(Enum):
             interpolation=cv2.INTER_NEAREST
         )
         
-        return img_resized, mask_resized
+        return ProcessResult( img_resized, mask_resized)
 
     
     def preprocessor_db_map_size(self, data_length: int, target_h: int, target_w: int) -> int :
