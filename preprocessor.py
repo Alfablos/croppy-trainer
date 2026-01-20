@@ -167,6 +167,7 @@ def precompute(
                 row, img, label = result
                 ipath = row['image_path']
                 lpath = row['label_path']
+                
                 if architecture == Architecture.RESNET:
                     csv_writer.writerow([db_index, ipath, *label])
                 elif architecture == Architecture.UNET:
@@ -189,11 +190,14 @@ def precompute(
                     db_index == len(rows) - 1
                 ):  # every commit_fre iterations and on the last one
                     transaction.commit()
+                    env.sync() # forces filesystem synchronization
                     transaction = env.begin(write=True)
                 
                 bar.update(1)
                 
                 db_index += 1
+            
+            transaction.put('__len__'.encode("ascii"), (db_index + 1).to_bytes(4, "big"))
                 
         
         except Exception as e:

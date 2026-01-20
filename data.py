@@ -1,8 +1,10 @@
+from cffi.cparser import lock
+from architecture import Architecture
 import csv
 import json
 import pickle
 import lmdb
-from typing import Any
+from typing import Any, Optional
 from collections.abc import Callable
 from jinja2.nodes import List
 import os
@@ -31,72 +33,121 @@ H = 512
 W = 384
 
 
-# class SmartDocDatasetResnet(Dataset):
-#     supported_img_formats = ["png"]
+class SmartDocDataset(Dataset):
+    supported_img_formats = ["png"]
 
-#     def __init__(
-#         self,
-#         image_paths: list[str],
-#         labels: np.ndarray,
-#         target_h: int = H,
-#         target_w: int = W,
-#         weights=visionmodels.ResNet18_Weights.DEFAULT,
-#         # transform: Callable[[Any], Any] | None = None
-#         precompute_to: str | None = None,
-#     ):
-#         super().__init__()
+    def __init__(
+        self,
+        lmdb_path: str,
+        architecture: Architecture,
+        image_transform: Optional[Callable] = None,
+        label_transform: Optional[Callable] = None,
+        # Only if RAM can afford that
+        in_memory_cache: bool = False
+    ):
+        super().__init__()
+        
+        self.lmdb_path = lmdb_path
+        self.env = None # opened on first __getitem__
+        self.image_transform = image_transform
+        self.label_transform = label_transform
+        
+        if in_memory_cache:
+            self.cache = {}
 
-#         self.image_paths = image_paths
-#         self.labels = labels
-#         self.target_h = target_h
-#         self.target_w = target_w
-#         self.weights = weights
 
-#         if precompute_to:
-#             # self.transform =
-#             self.precompute(precompute_to)
-#             self.computed = True
-#         else:
-#             t = weights.transforms()
-#             normalize = transformsV2.Normalize(mean=t.mean, std=t.std)
-#             # Data augmentation: since the model will deal with smartphone pictures (JPEG)
-#             # spoiling it with perfect PNGs would harm performamce
-#             # JPEG(quality=) will make sure the model is robust against
-#             # less-than-perfect pictures
-#             self.transform = transformsV2.Compose(
-#                 [
-#                     transformsV2.Resize((self.target_h, self.target_w)),
-#                     transformsV2.JPEG(quality=[50, 100]),
-#                     transformsV2.ToImage(),
-#                     transformsV2.ToDtype(dtype=torch.float32, scale=True),
-#                     normalize,
-#                 ]
-#             )
-#             self.computed = False
+    def __len__(self):
+        env = self._get_or_init_env()
+        with env.begin(write=False) as transaction:
+            return transaction.get(b'__len__')
 
-#     def __len__(self):
-#         return len(self.image_paths)
+    
+    def __getitems__(self, i):
+        image_path = self.image_paths[i]
+        label = torch.tensor(self.labels[i], dtype=torch.float32)
 
-#     def __getitems__(self, i):
-#         image_path = self.image_paths[i]
-#         label = torch.tensor(self.labels[i], dtype=torch.float32)
+        image = Image.open(image_path).convert("RGB")
+        image = self.transform(image)
 
-#         image = Image.open(image_path).convert("RGB")
-#         image = self.transform(image)
-
-#         return image, label
-
+        return image, label
+    
+    def _get_or_init_env(self):
+        if not self.env:
+            self.env = lmdb.open(
+                self.lmdb_path,
+                readonly=True,
+                lock=False,
+                readahead=False,
+                meminit=False
+            )
+        return self.env
+    
 
 if __name__ == "__main__":
-    crawl(
-        root=Path(
-            "/home/antonio/Downloads/extended_smartdoc_dataset/Extended Smartdoc dataset/train"
-        ),
-        images_ext="_in.png",
-        labels_ext="_gt.png",
-        output="./datatest.csv",
-        compute_corners=True,
-        check_normalization=True,
-        verbose=True,
-        precision=Precision.FP32,
+    # crawl(
+    #     root=Path(
+    #         "/home/antonio/Downloads/extended_smartdoc_dataset/Extended Smartdoc dataset/train"
+    #     ),
+    #     images_ext="_in.png",
+    #     labels_ext="_gt.png",
+    #     output="./datatest.csv",
+    #     compute_corners=True,
+    #     check_normalization=True,
+    #     verbose=True,
+    #     precision=Precision.FP32,
+    # )
+    
+    
+    weights = visionmodels.ResNet18_Weights.DEFAULT
+    t = weights.transforms()
+    normalize = transformsV2.Normalize(mean=t.mean, std=t.std)
+    # Data augmentation: since the model will deal with smartphone pictures (JPEG)
+    # spoiling it with perfect PNGs would harm performamce
+    # JPEG(quality=) will make sure the model is robust against
+    # less-than-perfect pictures
+    train_transform = transformsV2.Compose(
+        [
+            transformsV2.ToImage(),
+            # do NOT add this to preprocessing or the NN will overfit these low-quality artifacts and fail
+            # to recognize those coming from smartphones
+            transformsV2.JPEG(quality=[50, 100]),
+            transformsV2.ToDtype(dtype=torch.float32, scale=True),
+            normalize,
+        ]
     )
+    
+    resnet_train_ds = SmartDocDataset(
+        lmdb_path='./training_data/data_resnet_Float32.lmdb',
+        architecture=Architecture.RESNET,
+        image_transform=train_transform,
+        label_transform=None,
+        in_memory_cache=True
+    )
+    print(resnet_train_ds.__len__())
+    
+    # ### U-Net
+    # train_transform = transformsV2.Compose(
+    #     [
+    #         transformsV2.ToImage(),
+    #         # do NOT add this to preprocessing or the NN will overfit these low-quality artifacts and fail
+    #         # to recognize those coming from smartphones
+    #         transformsV2.JPEG(quality=[50, 100]),
+    #         transformsV2.ToDtype(dtype=torch.float32, scale=True),
+    #         normalize,
+    #     ]
+    # )
+    # train_target_transform = transformsV2.Compose([
+    #     transformsV2.ToImage(),
+    #     # No scaling! Masks usually need to be 0 or 1 integers/floats, not normalized.
+    #     transformsV2.ToDtype(torch.float32, scale=False), 
+    # ])
+    # unet_train_ds = SmartDocDataset(
+    #     lmdb_path='./training_data/data_unet_Float32.lmdb',
+    #     architecture=Architecture.UNET,
+    #     image_transform=train_transform,
+    #     label_transform=train_target_transform,
+    #     in_memory_cache=True
+    # )
+    
+    
+    
