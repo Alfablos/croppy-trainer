@@ -194,17 +194,15 @@ def precompute(
                     transaction = env.begin(write=True)
                 
                 bar.update(1)
-                
                 db_index += 1
-            
-            transaction.put('__len__'.encode("ascii"), (db_index + 1).to_bytes(32, "big"))
-            transaction.commit()
-                
-        
+
         except Exception as e:
             print(f"Error: {e}")
             raise e
         finally:
+            transaction.put('__len__'.encode("ascii"), db_index.to_bytes(64, "big"))
+            transaction.commit()
+            env.sync()
             env.close()
     
     print("Precomputation complete.")

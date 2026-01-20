@@ -58,7 +58,7 @@ class SmartDocDataset(Dataset):
     def __len__(self):
         env = self._get_or_init_env()
         with env.begin(write=False) as transaction:
-            return int.from_bytes(transaction.get('__len__'.encode("ascii")))
+            return int.from_bytes(transaction.get('__len__'.encode("ascii"), "big"))
 
     
     def __getitems__(self, i):
