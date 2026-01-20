@@ -3,20 +3,22 @@ from typing import Callable
 import os
 
 import cv2
+import pandas as pd
 import torch
 import torch.nn as nn
 from torch.nn import L1Loss, MSELoss
 from torch.nn import Sequential, Sigmoid, Linear, ReLU, Dropout
 from torch.optim import Adam, Optimizer
-from torchvision.transforms import v2 as transformsV2
 import torchvision.models as visionmodels
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 
 import utils
 import data
+from data import SmartDocDatasetResnet
 from common import Device
 
+x = 5 / 0
 
 IMAGE_SIZE: int = 512
 DEFAULT_WEIGHTS = visionmodels.ResNet18_Weights.DEFAULT
@@ -43,44 +45,6 @@ class CroppyTrainer(nn.Module):
 
     def forward(self, x):
         return self.model(x)
-
-
-class SmartDocDatasetResnet(Dataset):
-    supported_img_formats = ["png"]
-
-    def __init__(self, image_root, model_weigths):
-        super().__init__()
-
-        self.image_paths = "image_paths"
-        self.labels = "labels"
-
-        t = model_weigths.transforms()
-        normalize = transformsV2.Normalize(mean=t.mean, std=t.std)
-        # Data augmentation: since the model will deal with smartphone pictures (JPEG)
-        # spoiling it with perfect PNGs would harm performamce
-        # JPEG(quality=) will make sure the model is robust against
-        # less-than-perfect pictures
-        self.transform = transformsV2.Compose(
-            [
-                transformsV2.Resize((IMAGE_SIZE, IMAGE_SIZE)),
-                transformsV2.JPEG(quality=[50, 100]),
-                transformsV2.ToImage(),
-                transformsV2.ToDtype(dtype=torch.float32, scale=True),
-                normalize,
-            ]
-        )
-
-    def __len__(self):
-        return len(self.image_paths)
-
-    def __getitem__(self, i):
-        image_path = self.image_paths[i]
-        label = torch.tensor(self.labels[i], dtype=torch.float32)
-
-        image = Image.open(image_path).convert("RGB")
-        image = self.transform(image)
-
-        return image, label
 
 
 # def pixel_error(preds, labels):
@@ -155,17 +119,29 @@ def train(
 
 if __name__ == "__main__":
     weights = visionmodels.ResNet18_Weights.DEFAULT
+    df = pd.read_csv("./dataset.csv")
+    image_paths = df["image_path"]
+    labels = df.drop(["image_path", "label_path"], axis=1)
+    print(labels.to_numpy().shape)
+    exit(0)
 
-    dataset = SmartDocDatasetResnet(image_root="", model_weigths=weights)
+    # dataset = SmartDocDatasetResnet(
+    #     image_paths=image_paths.to_list(),
+    #     labels=labels.to_numpy(),
+    #     target_h=512,
+    #     target_w=384,
+    #     weights=weights,
+    #     precompute_to="examples_lowmem.lmdb",
+    # )
 
-    train(
-        dataset=dataset,
-        mode_weights=weights,
-        device=Device.CUDA,
-        dropout=0.3,
-        loss_function=L1Loss,
-        learning_rate=0.0001,
-        epochs=1000,
-        verbose=True,
-        out_file="./model.pth",
-    )
+    # train(
+    #     dataset=dataset,
+    #     mode_weights=weights,
+    #     device=Device.CUDA,
+    #     dropout=0.3,
+    #     loss_function=L1Loss,
+    #     learning_rate=0.0001,
+    #     epochs=1000,
+    #     verbose=True,
+    #     out_file="./model.pth",
+    # )

@@ -1,3 +1,10 @@
+import csv
+import json
+import pickle
+import lmdb
+from typing import Any
+from collections.abc import Callable
+from jinja2.nodes import List
 import os
 import sys
 from pathlib import Path
@@ -5,116 +12,91 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pandas as pd
+import torch
+from torch import nn
+from torch.utils.data import Dataset
+from torchvision.transforms import v2 as transformsV2
+import torchvision.models as visionmodels
+from PIL import Image
 from tqdm import tqdm
 
 import utils
+from common import Device
+from utils import Precision, resize_img
+from crawler import crawl
+
+# Smartphone use a 0.75 (3:4) ratio
+# ResNet reduces the input by a factor of 32 (12/16)
+H = 512
+W = 384
 
 
-def build_csv(
-    root: str,
-    output: str,
-    images_ext: str,
-    labels_ext: str,
-    compute_corners=True,
-    check_normalization=True,
-    verbose=False,
-):
-    if images_ext is None:
-        raise ValueError(
-            "Please, provide the extension for images. For example `.png` or `_img.png`"
-        )
-    if labels_ext is None:
-        raise ValueError(
-            "Please, provide the extension for labels. For example `.png` or `_lbl.png`"
-        )
+# class SmartDocDatasetResnet(Dataset):
+#     supported_img_formats = ["png"]
 
-    if not os.path.exists(root):
-        raise ValueError(f"Root path {root} does not exist.")
+#     def __init__(
+#         self,
+#         image_paths: list[str],
+#         labels: np.ndarray,
+#         target_h: int = H,
+#         target_w: int = W,
+#         weights=visionmodels.ResNet18_Weights.DEFAULT,
+#         # transform: Callable[[Any], Any] | None = None
+#         precompute_to: str | None = None,
+#     ):
+#         super().__init__()
 
-    output = Path(output)
-    if output.exists():
-        print(f"Output file {output} esists. Refusing to continue.")
-        exit(2)
+#         self.image_paths = image_paths
+#         self.labels = labels
+#         self.target_h = target_h
+#         self.target_w = target_w
+#         self.weights = weights
 
-    root = Path(root)
-    images = sorted(list(root.glob("**/*" + images_ext)))
-    labels = sorted(list(root.glob("**/*" + labels_ext)))
-    n_images, n_labels = len(images), len(labels)
-    assert n_images == n_labels, "Images and labels differ in number."
+#         if precompute_to:
+#             # self.transform =
+#             self.precompute(precompute_to)
+#             self.computed = True
+#         else:
+#             t = weights.transforms()
+#             normalize = transformsV2.Normalize(mean=t.mean, std=t.std)
+#             # Data augmentation: since the model will deal with smartphone pictures (JPEG)
+#             # spoiling it with perfect PNGs would harm performamce
+#             # JPEG(quality=) will make sure the model is robust against
+#             # less-than-perfect pictures
+#             self.transform = transformsV2.Compose(
+#                 [
+#                     transformsV2.Resize((self.target_h, self.target_w)),
+#                     transformsV2.JPEG(quality=[50, 100]),
+#                     transformsV2.ToImage(),
+#                     transformsV2.ToDtype(dtype=torch.float32, scale=True),
+#                     normalize,
+#                 ]
+#             )
+#             self.computed = False
 
-    if verbose:
-        print(f"Found {len(images)} images with labels.")
+#     def __len__(self):
+#         return len(self.image_paths)
 
-    rows = []
-    save_chunk_size = 100
+#     def __getitems__(self, i):
+#         image_path = self.image_paths[i]
+#         label = torch.tensor(self.labels[i], dtype=torch.float32)
 
-    for image, label in tqdm(zip(images, labels, strict=True), total=len(images)):
-        try:
-            row = {"image_path": image, "label_path": label}
+#         image = Image.open(image_path).convert("RGB")
+#         image = self.transform(image)
 
-            if compute_corners:
-                f = cv2.imread(filename=str(label), flags=cv2.IMREAD_GRAYSCALE)
-                mask = np.divide(f, 255.0)
-                coords = utils.coords_from_segmentation_mask(mask).numpy()
-                fields = ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"]
-                for coord_name, value in zip(fields, coords):
-                    if value > 1 and check_normalization:
-                        print(
-                            f"Warning: label {label} has {coord_name} coordinate with a value > 1 ({value}): {coords}\nYou may want to check your normalization algorithm.",
-                            file=sys.stderr,
-                        )
-
-                    row[coord_name] = value
-
-            rows.append(row)
-
-            if len(rows) >= save_chunk_size:
-                if verbose:
-                    print(f"Saving checkpoint to {output}")
-                save_to_csv(rows, str(output))
-                rows = []
-
-        except KeyboardInterrupt:
-            if rows:
-                print("Saving remaining rows after user interruption...")
-                save_to_csv(rows, str(output))
-                print("Done.")
-                exit(0)
-    if rows:
-        save_to_csv(rows, str(output))
-
-    if verbose:
-        print(
-            f"Done saving labels {'with coordinates' if compute_corners else ''} to {output}"
-        )
-
-
-def save_to_csv(rows: list[dict], dst: str, mode="a"):
-    dst_exists = os.path.exists(dst)
-
-    print("Saving to csv")
-
-    if dst_exists and not mode == "a":
-        raise ValueError(
-            "Refusing to write to exising CSV file when mode is not 'append'."
-        )
-
-    df = pd.DataFrame(rows, copy=False)  # !! Do not reset row yet!
-    df.to_csv(
-        dst,
-        mode=mode,
-        header=not dst_exists,  # headers only written the first time
-        index=False,
-    )
+#         return image, label
 
 
 if __name__ == "__main__":
-    build_csv(
-        root="/home/antonio/Downloads/extended_smartdoc_dataset/Extended Smartdoc dataset/train",
+    crawl(
+        root=Path(
+            "/home/antonio/Downloads/extended_smartdoc_dataset/Extended Smartdoc dataset/train"
+        ),
         images_ext="_in.png",
         labels_ext="_gt.png",
         output="./datatest.csv",
         compute_corners=True,
         check_normalization=True,
         verbose=True,
+        precision=Precision.FP32,
     )

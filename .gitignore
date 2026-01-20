@@ -1,3 +1,9 @@
 .idea/
+.direnv/
 __pycache__/
+
+*.csv
 *.log
+*.lmdb
+*.png
+*.jpg

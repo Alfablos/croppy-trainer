@@ -1,6 +1,8 @@
+from pandas.tests.arrays.masked.test_arrow_compat import pa
 import time
 from enum import Enum
-from typing import List
+from typing import List, Any, Literal, Never
+from itertools import chain
 
 from PIL import Image
 from tqdm import tqdm
@@ -10,6 +12,22 @@ from numpy.typing import NDArray
 import torch
 
 from common import Device
+
+
+def assert_never(arg: Never) -> Never:
+    raise AssertionError("Expected code to be unreachable")
+
+
+def resize_img(img, h: int, w: int, interpolation=cv2.INTER_AREA):
+    """
+    Resizes an image using the CPU to the given shape
+    parameters:
+        :param img: ndarray
+        :param h:   int
+        :param w:   int
+    """
+
+    return cv2.resize(img, (int(w), int(h)), interpolation=interpolation)
 
 
 class Precision(Enum):
@@ -29,7 +47,19 @@ class Precision(Enum):
                 f"No type associated with {self} for CPU. This is a bug!"
             )
 
-    def to_type_cpu(self) -> np.dtype:
+    @staticmethod
+    def from_str(s: str):
+        l_s = s.lower()
+        if l_s in ["float32", "fp32", "f32"]:
+            return Precision.FP32
+        elif l_s in ["float16", "fp16", "f16"]:
+            return Precision.FP16
+        elif l_s in ["uint8", "u8", "int8", "i8"]:
+            return Precision.UINT8
+        else:
+            raise NotImplementedError(f"No precision type associated with {s}")
+
+    def to_type_cpu(self) -> np.dtype[Any]:
         if self == Precision.FP32:
             return np.float32()
         elif self == Precision.FP16:
@@ -77,7 +107,7 @@ def coords_from_segmentation_mask(
     mask: NDArray | torch.Tensor,
     precision: Precision,
     device: Device = Device.CPU,
-):
+) -> torch.Tensor | NDArray:
     """
     Computes the coordinates of a PERFECTLY RECTANGULARE/SQUARED
     mask which can also be rotated.
@@ -105,10 +135,10 @@ def coords_from_segmentation_mask(
         # int8 range from -127 to 127 so a value of 255 overflows to -1
         if gpu:
             if (mask > 1.0).any() or (mask < 0.0).any():
-                bad_norm = (True, 'gpu')
+                bad_norm = (True, "gpu")
         else:
             if np.any(mask > 1) or np.any(mask < 0):
-                bad_norm = (True, 'cpu')
+                bad_norm = (True, "cpu")
 
         if bad_norm[0]:
             raise ValueError(
@@ -178,10 +208,7 @@ def coords_from_segmentation_mask(
         norm_br = [br[0] / w, br[1] / h]
         norm_bl = [bl[0] / w, bl[1] / h]
 
-        return torch.tensor(
-            np.array([norm_tl, norm_tr, norm_br, norm_bl]).flatten(),
-            dtype=torch.float32,
-        )
+        return np.array([norm_tl, norm_tr, norm_br, norm_bl]).flatten()
 
 
 if __name__ == "__main__":
