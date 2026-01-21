@@ -44,16 +44,16 @@ class SmartDocDataset(Dataset):
         image_transform: Optional[Callable] = None,
         label_transform: Optional[Callable] = None,
         # Only if RAM can afford that
-        in_memory_cache: bool = False
+        in_memory_cache: bool = False,
     ):
         super().__init__()
-        
+
         self.precision = precision
         self.lmdb_path = lmdb_path
-        self.env = None # opened on first __getitem__
+        self.env = None  # opened on first __getitem__
         self.image_transform = image_transform
         self.label_transform = label_transform
-        
+
         self.in_memory_cache = in_memory_cache
         if in_memory_cache:
             self.cache = dict()
@@ -61,15 +61,14 @@ class SmartDocDataset(Dataset):
     def __len__(self):
         env = self._get_or_init_env()
         with env.begin(write=False) as transaction:
-            return int.from_bytes(transaction.get('__len__'.encode("ascii"), "big"))
+            return int.from_bytes(transaction.get("__len__".encode("ascii"), "big"))
 
-    
     def __getitem__(self, i):
         img_idx = f"i{i}"
         lbl_idx = f"l{i}"
-        
+
         # Flow: 1. retrieve (cache or db); 2. transform; 3. to tensor
-        
+
         if self.in_memory_cache and img_idx in self.cache and lbl_idx in self.cache:
             image, label = self.cache[img_idx], self.cache[lbl_idx]
         else:
@@ -77,25 +76,34 @@ class SmartDocDataset(Dataset):
             with env.begin(write=False) as transaction:
                 image = pickle.loads(transaction.get(img_idx.encode("ascii")))
                 label = pickle.loads(transaction.get(lbl_idx.encode("ascii")))
-            
+
             # Storing numpy arrays, not tensors, in RAM
             if self.in_memory_cache:
                 self.cache[img_idx] = image
                 self.cache[lbl_idx] = label
-        
+
         if self.image_transform:
             tensor_image = self.image_transform(image)
         if self.label_transform:
             tensor_label = self.label_transform(label)
 
-        
-        # Converts from (h, w, c) into (c, h, w), which pytorch expects
-        image = tensor_image if self.image_transform else torch.tensor(image, dtype=self.precision.to_type_gpu()).permute(2, 0, 1) # calling torch.tensor() on a tensor duplicates data
-        label = tensor_label if self.label_transform else torch.tensor(label, dtype=self.precision.to_type_gpu())
+        # Converts from (h, w, c) into (c, h, w), which pytorch expects.
+        # https://docs.pytorch.org/vision/stable/transforms.html
+        image = (
+            tensor_image
+            if self.image_transform
+            else torch.tensor(image, dtype=self.precision.to_type_gpu()).permute(
+                2, 0, 1
+            )
+        )  # calling torch.tensor() on a tensor duplicates data
+        label = (
+            tensor_label
+            if self.label_transform
+            else torch.tensor(label, dtype=self.precision.to_type_gpu())
+        )
 
         return image, label
 
-    
     def _get_or_init_env(self):
         if not self.env:
             self.env = lmdb.open(
@@ -103,15 +111,16 @@ class SmartDocDataset(Dataset):
                 readonly=True,
                 lock=False,
                 readahead=False,
-                meminit=False
+                meminit=False,
             )
             print("Done")
         return self.env
-    
+
+
 
 if __name__ == "__main__":
     print(f"Pytorch version: {torch.__version__}")
-    
+
     # crawl(
     #     root=Path(
     #         "/home/antonio/Downloads/extended_smartdoc_dataset/Extended Smartdoc dataset/train"
@@ -124,8 +133,7 @@ if __name__ == "__main__":
     #     verbose=True,
     #     precision=Precision.FP32,
     # )
-    
-    
+
     weights = visionmodels.ResNet18_Weights.DEFAULT
     t = weights.transforms()
     normalize = transformsV2.Normalize(mean=t.mean, std=t.std)
@@ -143,24 +151,26 @@ if __name__ == "__main__":
             normalize,
         ]
     )
-    
+
     resnet_train_ds = SmartDocDataset(
-        lmdb_path='./training_data/data_resnet_Float32.lmdb',
+        lmdb_path="./training_data/data_resnet_Float32.lmdb",
         architecture=Architecture.RESNET,
         precision=Precision.FP32,
         image_transform=train_transform,
         label_transform=None,
-        in_memory_cache=True
+        in_memory_cache=True,
     )
-    
+
     dataloader = DataLoader(
-        pin_memory=True, # Using CUDA
+        pin_memory=True,  # Using CUDA
         dataset=resnet_train_ds,
         shuffle=True,
-        
     )
-    
-    
+
+    img, label = resnet_train_ds.inspect_image(0)
+    cv2.imwrite("debug_sample.jpg", img)
+    print(label)
+
     # ### U-Net
     # train_transform = transformsV2.Compose(
     #     [
@@ -175,7 +185,7 @@ if __name__ == "__main__":
     # train_target_transform = transformsV2.Compose([
     #     transformsV2.ToImage(),
     #     # No scaling! Masks usually need to be 0 or 1 integers/floats, not normalized.
-    #     transformsV2.ToDtype(torch.float32, scale=False), 
+    #     transformsV2.ToDtype(torch.float32, scale=False),
     # ])
     # unet_train_ds = SmartDocDataset(
     #     lmdb_path='./training_data/data_unet_Float32.lmdb',
@@ -184,6 +194,3 @@ if __name__ == "__main__":
     #     label_transform=train_target_transform,
     #     in_memory_cache=True
     # )
-    
-    
-    
