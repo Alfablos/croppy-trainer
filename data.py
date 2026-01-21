@@ -41,8 +41,6 @@ class SmartDocDataset(Dataset):
         precision: Precision,
         image_transform: Optional[Callable] = None,
         label_transform: Optional[Callable] = None,
-        # Only if RAM can afford that
-        in_memory_cache: bool = False,
     ):
         super().__init__()
 
@@ -52,9 +50,6 @@ class SmartDocDataset(Dataset):
         self.image_transform = image_transform
         self.label_transform = label_transform
 
-        self.in_memory_cache = in_memory_cache
-        if in_memory_cache:
-            self.cache = dict()
 
     def __len__(self):
         env = self._get_or_init_env()
@@ -67,20 +62,12 @@ class SmartDocDataset(Dataset):
 
         # Flow: 1. retrieve (cache or db); 2. transform; 3. to tensor
 
-        if self.in_memory_cache and img_idx in self.cache and lbl_idx in self.cache:
-            image, label = self.cache[img_idx], self.cache[lbl_idx]
-        else:
-            env = self._get_or_init_env()
-            with env.begin(write=False) as transaction:
-                # pickle.loads RETURNS A TUPLE FOR THE IMAGE!
-                image: NDArray = pickle.loads(transaction.get(img_idx.encode("ascii")))[0]
-                label: NDArray = pickle.loads(transaction.get(lbl_idx.encode("ascii")))
+        env = self._get_or_init_env()
+        with env.begin(write=False) as transaction:
+            # pickle.loads RETURNS A TUPLE FOR THE IMAGE!
+            image: NDArray = pickle.loads(transaction.get(img_idx.encode("ascii")))[0]
+            label: NDArray = pickle.loads(transaction.get(lbl_idx.encode("ascii")))
                 
-            # Storing numpy arrays, not tensors, in RAM
-            if self.in_memory_cache:
-                self.cache[img_idx] = image
-                self.cache[lbl_idx] = label
-        
 
         if self.image_transform:
             image_tensor = self.image_transform(image)
@@ -98,7 +85,11 @@ class SmartDocDataset(Dataset):
         return image_tensor, label_tensor
 
     def _get_or_init_env(self):
-        if not self.env:
+        # The worker is FORKED by pytorch and if env is open at the time of the fork
+        # the handle is copied to. The problem is that at that point
+        # another process (forked) will try to access the first worker's memory:
+            # segmentation fault!
+        if self.env is None or self.env_pid != os.getpid():
             self.env = lmdb.open(
                 self.lmdb_path,
                 readonly=True,
@@ -106,7 +97,7 @@ class SmartDocDataset(Dataset):
                 readahead=False,
                 meminit=False,
             )
-            print("Done")
+            self.env_pid = os.getpid()
         return self.env
 
 
@@ -151,7 +142,6 @@ if __name__ == "__main__":
         precision=Precision.FP32,
         image_transform=train_transform,
         label_transform=None,
-        in_memory_cache=True,
     )
 
     dataloader = DataLoader(

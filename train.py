@@ -157,8 +157,7 @@ if __name__ == "__main__":
         architecture=Architecture.RESNET,
         precision=Precision.FP32,
         image_transform=train_transform,
-        label_transform=None,
-        in_memory_cache=True,
+        label_transform=None
     )
 
     dataloader = DataLoader(
@@ -166,7 +165,7 @@ if __name__ == "__main__":
         dataset=resnet_train_ds,
         shuffle=True,
         batch_size=BATCH_SIZE,
-        num_workers=cpu_count(),
+        num_workers=14,
     )
 
     train(
