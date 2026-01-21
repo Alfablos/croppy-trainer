@@ -1,3 +1,8 @@
+import tqdm
+import typing
+from torch.multiprocessing import cpu_count
+from utils import Precision
+from architecture import Architecture
 from data import SmartDocDataset
 from enum import Enum
 from typing import Callable
@@ -11,6 +16,7 @@ from torch.nn import L1Loss, MSELoss
 from torch.nn import Sequential, Sigmoid, Linear, ReLU, Dropout
 from torch.optim import Adam, Optimizer
 import torchvision.models as visionmodels
+from torchvision.transforms import v2 as transformsV2
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 
@@ -46,17 +52,21 @@ class CroppyTrainer(nn.Module):
         return self.model(x)
 
 
-# def pixel_error(preds, labels):
-#     """Returns the mean error in calculating coriners positions"""
-#     # denormalize coordinates
-#     predicted = preds * IMAGE_SIZE
-#     actual = labels * IMAGE_SIZE
-#
-#     # reshaping to (n_batch, 4 corners, )
+def validation_loss(model, loader, loss_fn, device: Device) -> float:
+    model.eval()
+    val_loss = 0.0
+
+    with torch.no_grad():
+        for images, labels in loader:
+            images, labels = images.to(device.value), labels.to(device.value)
+
+            preds = model(images)
+            val_loss += loss_fn(preds, labels).item()
+        return val_loss / len(loader)
 
 
 def train(
-    dataset: SmartDocDataset,
+    train_dataloader: DataLoader,
     mode_weights,
     dropout: float,
     device: Device,
@@ -72,8 +82,8 @@ def train(
         raise ValueError("A `dropout` must be specified!")
     if device is None:
         raise ValueError("A `device` must be specified!")
-    if dataset is None:
-        raise ValueError("A `dataset` must be specified!")
+    if train_dataloader is None:
+        raise ValueError("A `train_dataloader` must be specified!")
     if learning_rate is None:
         raise ValueError("A `learning_rate` must be specified!")
     if epochs is None:
@@ -90,57 +100,83 @@ def train(
     model = CroppyTrainer(dropout=dropout, resnet_weights=mode_weights).to(device.value)
     optimizer = Adam(model.parameters(), lr=learning_rate)
 
-    train_load = DataLoader(dataset=dataset, batch_size=BATCH_SIZE, shuffle=True)
+    model.train()
 
-    for epoch in range(epochs):
-        model.train()
+    for epoch in tqdm.trange(epochs, position=0):
         epoch_loss = 0.0
+        val_loss = 0.0
 
-        for images, labels in train_load:
-            images, labels = images.to(device), labels.to(device)
+        sub_bar = tqdm.tqdm(total=len(train_dataloader), leave=True, position=1)
+        for images, labels in train_dataloader:
+            images, labels = images.to(device.value), labels.to(device.value)
 
             optimizer.zero_grad()
 
             preds = model(images)
+
             loss = loss_function(preds, labels)
 
             loss.backward()
 
             optimizer.step()
 
-            epoch_loss += loss
+            epoch_loss += loss.item()
+            sub_bar.update(1)
+
+        # val_loss = validation_loss(model,
+        # dataloader, loss_function, device)
 
         if verbose:
-            print(f"Epoch {epoch + 1}: loss={epoch_loss}")
+            print(f"Epoch {epoch + 1}: train_loss={epoch_loss}")
 
     torch.save(model.state_dict(), out_file)
 
 
 if __name__ == "__main__":
     weights = visionmodels.ResNet18_Weights.DEFAULT
-    df = pd.read_csv("./dataset.csv")
-    image_paths = df["image_path"]
-    labels = df.drop(["image_path", "label_path"], axis=1)
-    print(labels.to_numpy().shape)
-    exit(0)
 
-    # dataset = SmartDocDatasetResnet(
-    #     image_paths=image_paths.to_list(),
-    #     labels=labels.to_numpy(),
-    #     target_h=512,
-    #     target_w=384,
-    #     weights=weights,
-    #     precompute_to="examples_lowmem.lmdb",
-    # )
+    t = weights.transforms()
+    normalize = transformsV2.Normalize(mean=t.mean, std=t.std)
+    # Data augmentation: since the model will deal with smartphone pictures (JPEG)
+    # spoiling it with perfect PNGs would harm performamce
+    # JPEG(quality=) will make sure the model is robust against
+    # less-than-perfect pictures
+    train_transform = transformsV2.Compose(
+        [
+            transformsV2.ToImage(),
+            # do NOT add this to preprocessing or the NN will overfit those specific low-quality artifacts and fail
+            # to recognize those coming from smartphones
+            transformsV2.JPEG(quality=[50, 100]),
+            transformsV2.ToDtype(dtype=torch.float32, scale=True),
+            normalize,
+        ]
+    )
 
-    # train(
-    #     dataset=dataset,
-    #     mode_weights=weights,
-    #     device=Device.CUDA,
-    #     dropout=0.3,
-    #     loss_function=L1Loss,
-    #     learning_rate=0.0001,
-    #     epochs=1000,
-    #     verbose=True,
-    #     out_file="./model.pth",
-    # )
+    resnet_train_ds = SmartDocDataset(
+        lmdb_path="./training_data/data_resnet_Float32.lmdb",
+        architecture=Architecture.RESNET,
+        precision=Precision.FP32,
+        image_transform=train_transform,
+        label_transform=None,
+        in_memory_cache=True,
+    )
+
+    dataloader = DataLoader(
+        pin_memory=True,  # Using CUDA
+        dataset=resnet_train_ds,
+        shuffle=True,
+        batch_size=BATCH_SIZE,
+        num_workers=cpu_count(),
+    )
+
+    train(
+        train_dataloader=dataloader,
+        mode_weights=weights,
+        device=Device.CUDA,
+        dropout=0.3,
+        loss_function=L1Loss(),
+        learning_rate=0.0001,
+        epochs=100,
+        verbose=True,
+        out_file="./model.pth",
+    )

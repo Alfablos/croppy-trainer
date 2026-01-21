@@ -1,12 +1,11 @@
+from numpy.typing import NDArray
 from cffi.cparser import lock
 from architecture import Architecture
 import csv
 import json
 import pickle
 import lmdb
-from typing import Any, Optional
-from collections.abc import Callable
-from jinja2.nodes import List
+from typing import Any, Optional, List, Callable
 import os
 import sys
 from pathlib import Path
@@ -19,7 +18,6 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import v2 as transformsV2
 import torchvision.models as visionmodels
-from PIL import Image
 from tqdm import tqdm
 
 import utils
@@ -74,35 +72,30 @@ class SmartDocDataset(Dataset):
         else:
             env = self._get_or_init_env()
             with env.begin(write=False) as transaction:
-                image = pickle.loads(transaction.get(img_idx.encode("ascii")))
-                label = pickle.loads(transaction.get(lbl_idx.encode("ascii")))
-
+                # pickle.loads RETURNS A TUPLE FOR THE IMAGE!
+                image: NDArray = pickle.loads(transaction.get(img_idx.encode("ascii")))[0]
+                label: NDArray = pickle.loads(transaction.get(lbl_idx.encode("ascii")))
+                
             # Storing numpy arrays, not tensors, in RAM
             if self.in_memory_cache:
                 self.cache[img_idx] = image
                 self.cache[lbl_idx] = label
+        
 
         if self.image_transform:
-            tensor_image = self.image_transform(image)
+            image_tensor = self.image_transform(image)
+        else:
+            image_tensor = torch.tensor(image, dtype=self.precision.to_type_gpu())
+            # Converts from (h, w, c) into (c, h, w), which pytorch expects.
+            # https://docs.pytorch.org/vision/stable/transforms.html
+            image_tensor = image_tensor.permute(2, 0, 1)
+        
         if self.label_transform:
-            tensor_label = self.label_transform(label)
+            label_tensor = self.label_transform(label)
+        else:
+            label_tensor = torch.tensor(label, dtype=self.precision.to_type_gpu())
 
-        # Converts from (h, w, c) into (c, h, w), which pytorch expects.
-        # https://docs.pytorch.org/vision/stable/transforms.html
-        image = (
-            tensor_image
-            if self.image_transform
-            else torch.tensor(image, dtype=self.precision.to_type_gpu()).permute(
-                2, 0, 1
-            )
-        )  # calling torch.tensor() on a tensor duplicates data
-        label = (
-            tensor_label
-            if self.label_transform
-            else torch.tensor(label, dtype=self.precision.to_type_gpu())
-        )
-
-        return image, label
+        return image_tensor, label_tensor
 
     def _get_or_init_env(self):
         if not self.env:
@@ -115,7 +108,6 @@ class SmartDocDataset(Dataset):
             )
             print("Done")
         return self.env
-
 
 
 if __name__ == "__main__":
@@ -149,6 +141,7 @@ if __name__ == "__main__":
             transformsV2.JPEG(quality=[50, 100]),
             transformsV2.ToDtype(dtype=torch.float32, scale=True),
             normalize,
+            transformsV2.ToPureTensor()
         ]
     )
 
@@ -167,8 +160,14 @@ if __name__ == "__main__":
         shuffle=True,
     )
 
-    img, label = resnet_train_ds.inspect_image(0)
-    cv2.imwrite("debug_sample.jpg", img)
+    img, label = resnet_train_ds[0]
+    print(type(img))
+    exit(0)
+    
+    # img is a tensor (3, 512, 384), cv2 wants (512, 384, 3) and BGR
+    img_np = img.permute(1, 2, 0).numpy()
+    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+    cv2.imwrite("debug_sample.jpg", (img_bgr * 255).astype(np.uint8))
     print(label)
 
     # ### U-Net
