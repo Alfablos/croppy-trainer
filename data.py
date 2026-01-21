@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch import nn
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import v2 as transformsV2
 import torchvision.models as visionmodels
 from PIL import Image
@@ -40,6 +40,7 @@ class SmartDocDataset(Dataset):
         self,
         lmdb_path: str,
         architecture: Architecture,
+        precision: Precision,
         image_transform: Optional[Callable] = None,
         label_transform: Optional[Callable] = None,
         # Only if RAM can afford that
@@ -47,13 +48,15 @@ class SmartDocDataset(Dataset):
     ):
         super().__init__()
         
+        self.precision = precision
         self.lmdb_path = lmdb_path
         self.env = None # opened on first __getitem__
         self.image_transform = image_transform
         self.label_transform = label_transform
         
+        self.in_memory_cache = in_memory_cache
         if in_memory_cache:
-            self.cache = {}
+            self.cache = dict()
 
     def __len__(self):
         env = self._get_or_init_env()
@@ -61,18 +64,40 @@ class SmartDocDataset(Dataset):
             return int.from_bytes(transaction.get('__len__'.encode("ascii"), "big"))
 
     
-    def __getitems__(self, i):
-        image_path = self.image_paths[i]
-        label = torch.tensor(self.labels[i], dtype=torch.float32)
+    def __getitem__(self, i):
+        img_idx = f"i{i}"
+        lbl_idx = f"l{i}"
+        
+        # Flow: 1. retrieve (cache or db); 2. transform; 3. to tensor
+        
+        if self.in_memory_cache and img_idx in self.cache and lbl_idx in self.cache:
+            image, label = self.cache[img_idx], self.cache[lbl_idx]
+        else:
+            env = self._get_or_init_env()
+            with env.begin(write=False) as transaction:
+                image = pickle.loads(transaction.get(img_idx.encode("ascii")))
+                label = pickle.loads(transaction.get(lbl_idx.encode("ascii")))
+            
+            # Storing numpy arrays, not tensors, in RAM
+            if self.in_memory_cache:
+                self.cache[img_idx] = image
+                self.cache[lbl_idx] = label
+        
+        if self.image_transform:
+            tensor_image = self.image_transform(image)
+        if self.label_transform:
+            tensor_label = self.label_transform(label)
 
-        image = Image.open(image_path).convert("RGB")
-        image = self.transform(image)
+        
+        # Converts from (h, w, c) into (c, h, w), which pytorch expects
+        image = tensor_image if self.image_transform else torch.tensor(image, dtype=self.precision.to_type_gpu()).permute(2, 0, 1) # calling torch.tensor() on a tensor duplicates data
+        label = tensor_label if self.label_transform else torch.tensor(label, dtype=self.precision.to_type_gpu())
 
         return image, label
+
     
     def _get_or_init_env(self):
         if not self.env:
-            print("Initializing new LMDB...")
             self.env = lmdb.open(
                 self.lmdb_path,
                 readonly=True,
@@ -85,6 +110,8 @@ class SmartDocDataset(Dataset):
     
 
 if __name__ == "__main__":
+    print(f"Pytorch version: {torch.__version__}")
+    
     # crawl(
     #     root=Path(
     #         "/home/antonio/Downloads/extended_smartdoc_dataset/Extended Smartdoc dataset/train"
@@ -109,7 +136,7 @@ if __name__ == "__main__":
     train_transform = transformsV2.Compose(
         [
             transformsV2.ToImage(),
-            # do NOT add this to preprocessing or the NN will overfit these low-quality artifacts and fail
+            # do NOT add this to preprocessing or the NN will overfit those specific low-quality artifacts and fail
             # to recognize those coming from smartphones
             transformsV2.JPEG(quality=[50, 100]),
             transformsV2.ToDtype(dtype=torch.float32, scale=True),
@@ -120,11 +147,19 @@ if __name__ == "__main__":
     resnet_train_ds = SmartDocDataset(
         lmdb_path='./training_data/data_resnet_Float32.lmdb',
         architecture=Architecture.RESNET,
+        precision=Precision.FP32,
         image_transform=train_transform,
         label_transform=None,
         in_memory_cache=True
     )
-    print(resnet_train_ds.__len__())
+    
+    dataloader = DataLoader(
+        pin_memory=True, # Using CUDA
+        dataset=resnet_train_ds,
+        shuffle=True,
+        
+    )
+    
     
     # ### U-Net
     # train_transform = transformsV2.Compose(
