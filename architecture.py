@@ -1,6 +1,7 @@
 from typing import Callable, TypeVar
 import cv2
 from enum import Enum
+import numpy as np
 from numpy.typing import NDArray
 
 from common import Precision
@@ -18,6 +19,9 @@ class Architecture(Enum):
     RESNET = "resnet"
     UNET = "unet"
 
+    def __str__(self):
+        return self.value
+    
     def get_transform_logic(
         self,
     ) -> Callable[[dict, int, int, Precision], ProcessResult]:
@@ -132,7 +136,7 @@ class Architecture(Enum):
         else:
             assert_never(self)
 
-    def validate_preprocessor_config(self, config) -> str | None:
+    def find_preprocessor_misconfig(self, config) -> str | None:
         if self == Architecture.RESNET:
             return self._is_valid_resnet_preproc(config)
         elif self == Architecture.UNET:
@@ -146,9 +150,7 @@ class Architecture(Enum):
 
     @staticmethod
     def _is_valid_unet_preproc(config: dict) -> str | None:
-        if "crawler_config" in config and config["crawler_config"].compute_corners:
-            return "Found `compute_corners=True` in crowler's config but U-Net only needs masks."
-        elif config["compute_coords"]:
+        if config["compute_coords"]:
             return "Found `compute_corners=True` preprocessor's config but U-Net only needs masks."
         else:
             return None

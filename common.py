@@ -9,10 +9,35 @@ def device_from_obj(x: torch.Tensor | np.ndarray):
     return x.device
 
 
+class Purpose(Enum):
+    TRAIN = 'train'
+    VALIDATION = 'validation'
+    TEST = 'test'
+    
+    def __str__(self) -> str:
+        return self.value            
+
+    @staticmethod
+    def from_str(s: str):
+        s = s.lower()
+        if s in ["train", "training"]:
+            return Purpose.TRAIN
+        elif s in ["validation", "val"]:
+            return Purpose.VALIDATION
+        elif s == "test":
+            return Purpose.TEST
+        else:
+            raise NotImplementedError(f"No purpose associated with {s}")
+
+
+
 class Device(Enum):
     CPU = "cpu"
     CUDA = "cuda"
     MPS = "mps"
+    
+    def __str__(self):
+        return self.value
 
     def from_tensor(self, t: torch.Tensor):
         if t.device == -1:
@@ -35,10 +60,9 @@ class Device(Enum):
 
 
 class Precision(Enum):
-    FP32 = 4  # 4 bytes
-    FP16 = 2
-    UINT8 = 1
-
+    FP32 = 32  # 4 bytes
+    FP16 = 16
+    UINT8 = 8
     def __str__(self):
         if self == Precision.FP32:
             return "Float32"

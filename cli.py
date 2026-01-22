@@ -1,4 +1,5 @@
-from jinja2.nodes import FromImport
+from time import sleep
+import os
 from multiprocessing import cpu_count
 import argparse
 from torch.nn import L1Loss
@@ -8,7 +9,7 @@ from data import SmartDocDataset
 import torch
 from architecture import Architecture
 from preprocessor import precompute
-from common import Precision, Device
+from common import Precision, Device, Purpose
 from pathlib import Path
 from crawler import crawl
 
@@ -57,9 +58,20 @@ def run_crawl(args):
     )
 
 def run_precompute(args):
+    crawler_output = f"./dataset_{str(args.architecture)}_{str(args.precision).lower()}_{args.purpose}.csv"
     if not args.data_map:
+        data_map = crawler_output
+    else:
+        data_map = args.data_map
+    
+    if not os.path.exists(data_map):
+        print(f"Crawler output not found at {crawler_output}, data needs to be crawled first.")
+        print(f"If you have already crawled your data root rename the output file to `{crawler_output}`.")
+        print(f"waiting 5 seconds before starting to crawl, interrupt now if you don't wish to continue.")
+        sleep(5)
         crawler_config = {
             "root": Path(args.data_root),
+            "output": crawler_output,
             "images_ext": args.image_extension,
             "labels_ext": args.label_extension,
             "precision": Precision.from_str(args.precision),
@@ -67,27 +79,23 @@ def run_precompute(args):
             "check_normalization": args.check_normalization,
             "verbose": args.verbose
         }
-    else:
-        crawler_config = None
-
-    kwargs = {}
-    if args.commit_frequency:
-        kwargs["commit_freq"] = int(args.commit_frequency)
-    if args.workers:
-        kwargs["n_workers"] = int(args.workers)
+        crawl(**crawler_config)
+        
 
     precompute(
         architecture=Architecture.from_str(args.architecture),
-        db_output_dir=args.output_dir,
+        output_dir=args.output_dir,
         target_h=args.target_height,
         target_w=args.target_width,
-        dataset_map_csv=args.data_map,
-        crawler_config=crawler_config,
+        dataset_map_csv=crawler_output,
         dry_run=args.dry_run,
+        purpose=Purpose.from_str(args.purpose),
         verbose=args.verbose,
         compute_corners=args.compute_corners,
         strict=args.strict,
-        precision=Precision.from_str(args.precision)
+        precision=Precision.from_str(args.precision),
+        n_workers=args.workers,
+        commit_freq=args.commit_frequency
     )
     
     
@@ -96,35 +104,59 @@ def run_train(args):
 
     t = weights.transforms()
     normalize = transformsV2.Normalize(mean=t.mean, std=t.std)
-    train_transform = transformsV2.Compose(
-        [
-            transformsV2.ToImage(),
-            transformsV2.JPEG(quality=[50, 100]),
-            transformsV2.ToDtype(dtype=torch.float32, scale=True),
-            normalize,
-        ]
-    )
+    train_t = [
+                transformsV2.ToImage(),
+                transformsV2.JPEG(quality=[50, 100]),
+                transformsV2.ToDtype(dtype=torch.float32, scale=True),
+                normalize,
+            ]
+    train_transforms = transformsV2.Compose(train_t)
+    
     
     resnet_train_ds = SmartDocDataset(
         lmdb_path=args.lmdb_path,
         architecture=Architecture.from_str(args.architecture),
         precision=Precision.from_str(args.precision),
-        image_transform=train_transform,
+        image_transform=train_transforms,
         label_transform=None,
         limit=args.limit
     )
 
-    dataloader = DataLoader(
+    train_dataloader = DataLoader(
         pin_memory=True,  # Using CUDA
         dataset=resnet_train_ds,
         shuffle=True,
         batch_size=args.batch_size,
         num_workers=args.workers,
     )
+    
+    if args.validation_lmdb_path:
+        val_t = [
+            transformsV2.ToImage(),
+            transformsV2.ToDtype(dtype=torch.float32, scale=True)
+        ]
+        val_transforms = transformsV2.Compose(val_t)
+        resnet_val_ds = SmartDocDataset(
+            lmdb_path=args.validation_lmdb_path,
+            architecture=Architecture.from_str(args.architecture),
+            precision=Precision.from_str(args.precision),
+            image_transform=val_transforms,
+            label_transform=None,
+            limit=args.limit
+        )
+    
+        val_dataloader = DataLoader(
+            pin_memory=True,  # Using CUDA
+            dataset=resnet_val_ds,
+            shuffle=False,
+            batch_size=args.batch_size,
+            num_workers=args.workers,
+        )
 
     
     train(
-        train_dataloader=dataloader,
+        train_dataloader=train_dataloader,
+        validation_dataloader=val_dataloader,
         mode_weights=weights,
         device=Device.from_str(args.device),
         dropout=args.dropout,

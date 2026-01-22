@@ -14,6 +14,8 @@ from architecture import Architecture
 
 
 if __name__ == "__main__":
+    # python main.py pc -o ./ --height 512 --width 384 --compute-corners --strict --precision f32 --image-extension '_in.png' --label-extension '_gt.png' --architecture resnet --data-root ~/Downloads/extended_smartdoc_dataset/Extended\ Smartdoc\ dataset/train --purpose train -v
+    # python main.py pc -o ./ --height 512 --width 384 --compute-corners --strict --precision f32 --image-extension '_in.png' --label-extension '_gt.png' --architecture resnet --data-root ~/Downloads/extended_smartdoc_dataset/Extended\ Smartdoc\ dataset/validation --purpose val -v
     parser = argparse.ArgumentParser()
     parser.set_defaults(func=lambda _: parser.print_help())
     # build-ds --data-root /home/antonio/Downloads/extended_smartdoc_dataset/Extended\ Smartdoc\ dataset/train --iext '_in.png' --lext='_gt.png' -o ./dataset.csv -v -n -c
@@ -74,7 +76,6 @@ if __name__ == "__main__":
     crawl_cmd.set_defaults(func=run_crawl)
 
     ## precompute (crawler options) ## # the options of the crawler are only read if --csv is not set
-    precompute_cmd.add_argument("--precision", "-p", required=False, default="f32")
     precompute_cmd.add_argument("--compute-corners", "-c", action="store_true")
     precompute_cmd.add_argument("--check-normalization", "-n", action="store_true")
     precompute_cmd.add_argument(
@@ -99,23 +100,25 @@ if __name__ == "__main__":
         "-o", "--output-dir", required=True, help="Where to save LMDB and CSV files"
     )
     precompute_cmd.add_argument("--architecture", "--arch", "-a", required=True)
+    precompute_cmd.add_argument("--precision", "--prec", required=True)
     precompute_cmd.add_argument("--target-height", "--height", type=int, required=True)
     precompute_cmd.add_argument("--target-width", "--width", type=int, required=True)
-    precompute_cmd.add_argument("--commit-frequency", "--commit-freq", required=False)
+    precompute_cmd.add_argument("--commit-frequency", "--commit-freq", required=False, default=100)
     precompute_cmd.add_argument("--dry-run", required=False, action="store_true")
     precompute_cmd.add_argument("--verbose", "-v", required=False, action="store_true")
     precompute_cmd.add_argument("--strict", "-s", required=False, action="store_true")
-    precompute_cmd.add_argument("--workers", "--threads", "--n-workers", "--n-threads", "-w", required=False, default=cpu_count)
+    precompute_cmd.add_argument("--workers", "--threads", "--n-workers", "--n-threads", "-w", required=False, default=cpu_count())
+    precompute_cmd.add_argument("--purpose", "-P", required=True, type=str)
     precompute_cmd.set_defaults(func=run_precompute)
     
     
     ## Train ##
     train_cmd.add_argument("--lmdb-path", "--db", required=True)
+    train_cmd.add_argument("--validation-lmdb-path", "--valdb", required=False)
     train_cmd.add_argument("--architecture", "--arch", "-a", required=True)
     train_cmd.add_argument("--learning-rate", "--lrate", "--lr", required=True, type=float)
     train_cmd.add_argument("--epochs", "-e", required=True, type=int)
     train_cmd.add_argument("--output-file", "--output", "-o", required=False, help="Where to save the model weights")
-    
     train_cmd.add_argument("--precision", "-p", required=False, default="f32")
     train_cmd.add_argument("--limit", required=False, type=int)
     train_cmd.add_argument("--workers", "-w", required=False, type=int, default=cpu_count())

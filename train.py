@@ -73,13 +73,14 @@ s_writer = SummaryWriter()
 def train(
     out_file,
     train_dataloader: DataLoader,
+    validation_dataloader: DataLoader | None,
     mode_weights,
     dropout: float,
     device: Device,
     loss_function: Callable,
     learning_rate: float,
     epochs: int,
-    tensorboard_logdir: str,
+    tensorboard_logdir: str | None=None,
     verbose=False,
     progress=False,
     with_tensorboard: bool = False
@@ -101,19 +102,25 @@ def train(
     if not out_file:
         out_file = f"model_{dropout}dropout_{learning_rate}lr_{epochs}epochs.pth"
     if not with_tensorboard and tensorboard_logdir:
-        print("Error: A tensorboard log directory was specified but tensorboard is not enabled!")
-
+        raise ValueError("Error: A tensorboard log directory was specified but tensorboard is not enabled!")
+    if with_tensorboard and not tensorboard_logdir:
+        raise ValueError("A tensorboard logdir must be specified if ensorboard is enabled.")
 
     try:
         os.stat(out_file)
         raise ValueError(f"{out_file} already exists.")
     except OSError:
         pass
+    
+    if verbose:
+        print("Starting training with parameters:")
+        for k, v in locals().items():
+            print(f"==> {k}: {v}")
+            print()
 
     model = CroppyTrainerResnet(dropout=dropout, resnet_weights=mode_weights).to(device.value)
     optimizer = Adam(model.parameters(), lr=learning_rate)
 
-    model.train()
     
     if with_tensorboard:
         url = utils.launch_tensorboard(tensorboard_logdir)
@@ -125,10 +132,13 @@ def train(
         epochs_iter = range(epochs)
         
     for epoch in epochs_iter:
-        epoch_loss = 0.0
-        val_loss = 0.0
+        model.train()
+        
+        cumulative_train_loss = 0.0
+        cumulative_val_loss = 0.0
 
-        sub_bar = tqdm.tqdm(total=len(train_dataloader), leave=True, position=1)
+        if progress:
+            sub_bar = tqdm.tqdm(total=len(train_dataloader), leave=True, position=1)
         try:
             for images, labels in train_dataloader:
                 images, labels = images.to(device.value), labels.to(device.value)
@@ -143,16 +153,31 @@ def train(
     
                 optimizer.step()
     
-                epoch_loss += loss.item()
+                cumulative_train_loss += loss.item()
+                
                 if progress:
                     sub_bar.update(1)
         except KeyboardInterrupt:
             print("Aborting due to user interruption...")
-
-        if verbose:
-            print(f"Epoch {epoch + 1}: train_loss={epoch_loss}")
+            break
         
-        s_writer.add_scalar("Train loss", epoch_loss, epoch)
+        
+        if validation_dataloader:
+            model.eval()
+            for v_images, v_labels in validation_dataloader:
+                v_preds = model(v_images)
+                cumulative_val_loss += loss_function(v_preds, v_labels)
+        
+        epoch_train_loss = cumulative_train_loss / (epoch + 1)
+        if validation_dataloader:
+            epoch_val_loss = cumulative_val_loss / (epoch + 1)
+                
+        if verbose:
+            print(f"Epoch {epoch + 1}: train_loss={epoch_train_loss}, val_loss={epoch_val_loss}")
+        
+        s_writer.add_scalar(tag="Train loss", scalar_value=epoch_train_loss, global_step=epoch + 1)
+        if validation_dataloader:
+            s_writer.add_scalar(tag="Validation loss", scalar_value=epoch_val_loss, global_step=epoch + 1)
 
     torch.save(model.state_dict(), out_file)
 
@@ -186,7 +211,26 @@ if __name__ == "__main__":
         # limit=128
     )
 
-    dataloader = DataLoader(
+    train_dataloader = DataLoader(
+        pin_memory=True,  # Using CUDA
+        dataset=resnet_train_ds,
+        shuffle=True,
+        batch_size=BATCH_SIZE,
+        num_workers=14,
+    )
+    
+    
+    resnet_val_ds = SmartDocDataset(
+        lmdb_path="./training_data/data_resnet_Float32.lmdb",
+        architecture=Architecture.RESNET,
+        precision=Precision.FP32,
+        image_transform=train_transform,
+        label_transform=None,
+        # limit=128
+    )
+
+
+    val_dataloader = DataLoader(
         pin_memory=True,  # Using CUDA
         dataset=resnet_train_ds,
         shuffle=True,
@@ -197,7 +241,8 @@ if __name__ == "__main__":
     s_writer = SummaryWriter()
     
     train(
-        train_dataloader=dataloader,
+        train_dataloader=train_dataloader,
+        validation_dataloader=val_dataloader,
         mode_weights=weights,
         device=Device.CUDA,
         dropout=0.3,

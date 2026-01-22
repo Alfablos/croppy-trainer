@@ -8,7 +8,7 @@ import cv2
 from tqdm import tqdm
 
 
-from common import Precision
+from common import Precision, Purpose
 import utils
 from utils import Device
 
@@ -82,7 +82,7 @@ def crawl(
         raise ValueError(
             "Please, provide the extension for labels. For example `.png` or `_lbl.png`"
         )
-
+    
     if not root.exists():
         raise ValueError(f"Root path {root} does not exist.")
 
