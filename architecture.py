@@ -1,8 +1,11 @@
 from typing import Callable, TypeVar
 import cv2
-from utils import assert_never, resize_img, Precision, coords_from_segmentation_mask
 from enum import Enum
 from numpy.typing import NDArray
+
+from common import Precision
+from utils import assert_never, resize_img, coords_from_segmentation_mask
+
 
 
 class ProcessResult:

@@ -38,8 +38,8 @@ from pynvml import (
 from tqdm import tqdm
 from triton.language import dtype
 
-from common import Device
-from utils import coords_from_segmentation_mask, find_max_dims, Precision
+from common import Device, Precision
+from utils import coords_from_segmentation_mask, find_max_dims
 from performance_utils import drop_disk_cache, create_path_batch
 
 

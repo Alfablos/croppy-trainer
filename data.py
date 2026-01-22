@@ -21,8 +21,8 @@ import torchvision.models as visionmodels
 from tqdm import tqdm
 
 import utils
-from common import Device
-from utils import Precision, resize_img
+from common import Device, Precision
+from utils import resize_img
 from crawler import crawl
 
 # Smartphone use a 0.75 (3:4) ratio
@@ -41,6 +41,7 @@ class SmartDocDataset(Dataset):
         precision: Precision,
         image_transform: Optional[Callable] = None,
         label_transform: Optional[Callable] = None,
+        limit: Optional[int] = None
     ):
         super().__init__()
 
@@ -49,18 +50,22 @@ class SmartDocDataset(Dataset):
         self.env = None  # opened on first __getitem__
         self.image_transform = image_transform
         self.label_transform = label_transform
+        self.limit = limit
 
 
     def __len__(self):
-        env = self._get_or_init_env()
-        with env.begin(write=False) as transaction:
-            return int.from_bytes(transaction.get("__len__".encode("ascii"), "big"))
+        if self.limit is not None:
+            return self.limit
+        else:
+            env = self._get_or_init_env()
+            with env.begin(write=False) as transaction:
+                return int.from_bytes(transaction.get("__len__".encode("ascii"), "big"))
 
     def __getitem__(self, i):
         img_idx = f"i{i}"
         lbl_idx = f"l{i}"
 
-        # Flow: 1. retrieve (cache or db); 2. transform; 3. to tensor
+        # Flow: 1. retrieve (cache or db); 2. transform (optional); 3. to tensor
 
         env = self._get_or_init_env()
         with env.begin(write=False) as transaction:
@@ -141,7 +146,7 @@ if __name__ == "__main__":
         architecture=Architecture.RESNET,
         precision=Precision.FP32,
         image_transform=train_transform,
-        label_transform=None,
+        label_transform=None
     )
 
     dataloader = DataLoader(

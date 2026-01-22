@@ -11,7 +11,7 @@ import numpy as np
 from numpy.typing import NDArray
 import torch
 
-from common import Device
+from common import Device, Precision
 
 
 def assert_never(arg: Never) -> Never:
@@ -29,59 +29,6 @@ def resize_img(img, h: int, w: int, interpolation=cv2.INTER_AREA):
 
     return cv2.resize(img, (int(w), int(h)), interpolation=interpolation)
 
-
-class Precision(Enum):
-    FP32 = 4  # 4 bytes
-    FP16 = 2
-    UINT8 = 1
-
-    def __str__(self):
-        if self == Precision.FP32:
-            return "Float32"
-        elif self == Precision.FP16:
-            return "Float16"
-        elif self == Precision.UINT8:
-            return "UINT8"
-        else:
-            raise NotImplementedError(
-                f"No type associated with {self} for CPU. This is a bug!"
-            )
-
-    @staticmethod
-    def from_str(s: str):
-        l_s = s.lower()
-        if l_s in ["float32", "fp32", "f32"]:
-            return Precision.FP32
-        elif l_s in ["float16", "fp16", "f16"]:
-            return Precision.FP16
-        elif l_s in ["uint8", "u8", "int8", "i8"]:
-            return Precision.UINT8
-        else:
-            raise NotImplementedError(f"No precision type associated with {s}")
-
-    def to_type_cpu(self) -> np.dtype[Any]:
-        if self == Precision.FP32:
-            return np.float32()
-        elif self == Precision.FP16:
-            return np.float16()
-        elif self == Precision.UINT8:
-            return np.uint8()
-        else:
-            raise NotImplementedError(
-                f"No type associated with {self} for CPU. This is a bug!"
-            )
-
-    def to_type_gpu(self) -> torch.dtype:
-        if self == Precision.FP32:
-            return torch.float32
-        elif self == Precision.FP16:
-            return torch.float16
-        elif self == Precision.UINT8:
-            return torch.uint8
-        else:
-            raise NotImplementedError(
-                f"No type associated with {self} for GPU. This is a bug!"
-            )
 
 
 def find_max_dims(paths: List[str]):

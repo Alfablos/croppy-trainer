@@ -19,7 +19,8 @@ import numpy as np
 import pandas as pd
 
 
-from utils import resize_img, Precision, assert_never, coords_from_segmentation_mask
+from common import Precision
+from utils import resize_img, assert_never, coords_from_segmentation_mask
 from architecture import Architecture, ProcessResult
 
 

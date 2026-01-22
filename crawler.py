@@ -8,9 +8,9 @@ import cv2
 from tqdm import tqdm
 
 
+from common import Precision
 import utils
 from utils import Device
-from utils import Precision
 
 
 def crawl(

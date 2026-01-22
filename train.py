@@ -1,7 +1,8 @@
+from typing import Optional
 import tqdm
 import typing
 from torch.multiprocessing import cpu_count
-from utils import Precision
+from common import Precision
 from architecture import Architecture
 from data import SmartDocDataset
 from enum import Enum
@@ -18,6 +19,7 @@ from torch.optim import Adam, Optimizer
 import torchvision.models as visionmodels
 from torchvision.transforms import v2 as transformsV2
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from PIL import Image
 
 import utils
@@ -27,10 +29,11 @@ from common import Device
 
 IMAGE_SIZE: int = 512
 DEFAULT_WEIGHTS = visionmodels.ResNet18_Weights.DEFAULT
-BATCH_SIZE: int = 16
+BATCH_SIZE: int = 64
+# BATCH_SIZE: int = 16 took 7h 50min
 
 
-class CroppyTrainer(nn.Module):
+class CroppyTrainerResnet(nn.Module):
     def __init__(self, resnet_weights, dropout=0.3):
         super().__init__()
 
@@ -65,7 +68,10 @@ def validation_loss(model, loader, loss_fn, device: Device) -> float:
         return val_loss / len(loader)
 
 
+s_writer = SummaryWriter()
+
 def train(
+    out_file,
     train_dataloader: DataLoader,
     mode_weights,
     dropout: float,
@@ -74,7 +80,7 @@ def train(
     learning_rate: float,
     epochs: int,
     verbose=False,
-    out_file="./model.pth",
+    summary: Optional[SummaryWriter] = None
 ):
     if mode_weights is None:
         raise ValueError("`model_weights` must be specified!")
@@ -90,6 +96,9 @@ def train(
         raise ValueError("A value for `epochs` must be specified!")
     if loss_function is None:
         raise ValueError("A `loss_function` must be specified!")
+    if not out_file:
+        out_file = f"model_{dropout}dropout_{learning_rate}lr_{epochs}epochs.pth"
+
 
     try:
         os.stat(out_file)
@@ -97,37 +106,45 @@ def train(
     except OSError:
         pass
 
-    model = CroppyTrainer(dropout=dropout, resnet_weights=mode_weights).to(device.value)
+    model = CroppyTrainerResnet(dropout=dropout, resnet_weights=mode_weights).to(device.value)
     optimizer = Adam(model.parameters(), lr=learning_rate)
 
     model.train()
-
-    for epoch in tqdm.trange(epochs, position=0):
+    
+    if verbose:
+        epochs = tqdm.trange(epochs, position=0) if verbose else epochs
+    else:
+        epoch = range(epochs)
+    
+    for epoch in epochs:
         epoch_loss = 0.0
         val_loss = 0.0
 
         sub_bar = tqdm.tqdm(total=len(train_dataloader), leave=True, position=1)
-        for images, labels in train_dataloader:
-            images, labels = images.to(device.value), labels.to(device.value)
-
-            optimizer.zero_grad()
-
-            preds = model(images)
-
-            loss = loss_function(preds, labels)
-
-            loss.backward()
-
-            optimizer.step()
-
-            epoch_loss += loss.item()
-            sub_bar.update(1)
-
-        # val_loss = validation_loss(model,
-        # dataloader, loss_function, device)
+        try:
+            for images, labels in train_dataloader:
+                images, labels = images.to(device.value), labels.to(device.value)
+    
+                optimizer.zero_grad()
+    
+                preds = model(images)
+    
+                loss = loss_function(preds, labels)
+    
+                loss.backward()
+    
+                optimizer.step()
+    
+                epoch_loss += loss.item()
+                if verbose:
+                    sub_bar.update(1)
+        except KeyboardInterrupt:
+            print("Aborting due to user interruption...")
 
         if verbose:
             print(f"Epoch {epoch + 1}: train_loss={epoch_loss}")
+        
+        s_writer.add_scalar("Train loss", epoch_loss, epoch)
 
     torch.save(model.state_dict(), out_file)
 
@@ -157,7 +174,8 @@ if __name__ == "__main__":
         architecture=Architecture.RESNET,
         precision=Precision.FP32,
         image_transform=train_transform,
-        label_transform=None
+        label_transform=None,
+        # limit=128
     )
 
     dataloader = DataLoader(
@@ -168,6 +186,8 @@ if __name__ == "__main__":
         num_workers=14,
     )
 
+    s_writer = SummaryWriter()
+    
     train(
         train_dataloader=dataloader,
         mode_weights=weights,
@@ -175,7 +195,8 @@ if __name__ == "__main__":
         dropout=0.3,
         loss_function=L1Loss(),
         learning_rate=0.0001,
-        epochs=100,
+        # epochs=100,
+        epochs=10,
         verbose=True,
-        out_file="./model.pth",
+        out_file="./model_fp32_batch64.pth",
     )
