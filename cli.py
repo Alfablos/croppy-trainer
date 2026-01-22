@@ -132,8 +132,11 @@ def run_train(args):
         learning_rate=args.learning_rate,
         # epochs=100,
         epochs=args.epochs,
+        tensorboard_logdir=args.tensorboard_logdir,
         verbose=args.verbose,
+        progress=args.progress,
         out_file=args.output_file,
+        with_tensorboard=args.enable_tensorboard
     )
     
     

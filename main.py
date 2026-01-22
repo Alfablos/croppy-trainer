@@ -123,6 +123,9 @@ if __name__ == "__main__":
     train_cmd.add_argument("--device", "-d", required=False, type=str, default='cuda')
     train_cmd.add_argument("--dropout", required=False, type=float, default=0.3)
     train_cmd.add_argument("--verbose", "-v", action="store_true", required=False, default=False)
+    train_cmd.add_argument("--progress", action="store_true", required=False, default=False)
+    train_cmd.add_argument("--enable-tensorboard", "--with_tensorboard", "--tensorboard", "-B", action="store_true", required=False, default=False)
+    train_cmd.add_argument("--tensorboard-logdir", "--logdir", required=False, type=str)
     train_cmd.set_defaults(func=run_train)
     
 

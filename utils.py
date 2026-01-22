@@ -1,3 +1,4 @@
+from sys import argv
 from pandas.tests.arrays.masked.test_arrow_compat import pa
 import time
 from enum import Enum
@@ -10,6 +11,7 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 import torch
+import tensorboard
 
 from common import Device, Precision
 
@@ -158,5 +160,11 @@ def coords_from_segmentation_mask(
         return np.array([norm_tl, norm_tr, norm_br, norm_bl]).flatten()
 
 
-if __name__ == "__main__":
-    pass
+
+def launch_tensorboard(log_dir: str, host: str = "0.0.0.0", port: int = 6006) -> str:
+    tb = tensorboard.program.TensorBoard()
+    tb.configure(argv=[None, "--logdir", log_dir, "--host", host, "--port", str(port)])
+    url = tb.launch()
+    return url
+    
+    

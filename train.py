@@ -79,8 +79,10 @@ def train(
     loss_function: Callable,
     learning_rate: float,
     epochs: int,
+    tensorboard_logdir: str,
     verbose=False,
-    summary: Optional[SummaryWriter] = None
+    progress=False,
+    with_tensorboard: bool = False
 ):
     if mode_weights is None:
         raise ValueError("`model_weights` must be specified!")
@@ -98,6 +100,8 @@ def train(
         raise ValueError("A `loss_function` must be specified!")
     if not out_file:
         out_file = f"model_{dropout}dropout_{learning_rate}lr_{epochs}epochs.pth"
+    if not with_tensorboard and tensorboard_logdir:
+        print("Error: A tensorboard log directory was specified but tensorboard is not enabled!")
 
 
     try:
@@ -111,12 +115,16 @@ def train(
 
     model.train()
     
-    if verbose:
-        epochs = tqdm.trange(epochs, position=0) if verbose else epochs
-    else:
-        epoch = range(epochs)
+    if with_tensorboard:
+        url = utils.launch_tensorboard(tensorboard_logdir)
+        print(f"Tensorboard is listening at {url}")
     
-    for epoch in epochs:
+    if progress:
+        epochs_iter = tqdm.trange(epochs, position=0)
+    else:
+        epochs_iter = range(epochs)
+        
+    for epoch in epochs_iter:
         epoch_loss = 0.0
         val_loss = 0.0
 
@@ -136,7 +144,7 @@ def train(
                 optimizer.step()
     
                 epoch_loss += loss.item()
-                if verbose:
+                if progress:
                     sub_bar.update(1)
         except KeyboardInterrupt:
             print("Aborting due to user interruption...")
