@@ -36,6 +36,7 @@
             pyarrow
             torch-bin
             torchvision-bin
+            tensorboard
             pillow
             opencv-python-headless
             matplotlib
