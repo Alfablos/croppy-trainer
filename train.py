@@ -1,3 +1,4 @@
+import architecture
 from typing import Optional
 import tqdm
 import typing
@@ -33,10 +34,11 @@ BATCH_SIZE: int = 64
 # BATCH_SIZE: int = 16 took 7h 50min
 
 
-class CroppyTrainerResnet(nn.Module):
+class CroppyTrainer(nn.Module): # TODO: make it architecture-agnostic: take in base_model and fully_connected_layers to set self.model.fc
     def __init__(self, resnet_weights, dropout=0.3):
         super().__init__()
 
+        # self.architecture = architecture
         self.model = visionmodels.resnet18(weights=resnet_weights, progress=True)
         self.model.fc = Sequential(
             Dropout(p=dropout),
@@ -53,9 +55,11 @@ class CroppyTrainerResnet(nn.Module):
 
     def forward(self, x):
         return self.model(x)
+    # def get_architecture(self):
+    #     return self.architecture
 
 
-def validation_loss(model, loader, loss_fn, device: Device) -> float:
+def validation_data(model, loader, loss_fn, epoch: int, device: Device) -> float:
     model.eval()
     val_loss = 0.0
 
@@ -65,7 +69,7 @@ def validation_loss(model, loader, loss_fn, device: Device) -> float:
 
             preds = model(images)
             val_loss += loss_fn(preds, labels).item()
-        return val_loss / len(loader)
+        return val_loss / (epoch + 1)
 
 
 s_writer = SummaryWriter()
@@ -118,7 +122,7 @@ def train(
             print(f"==> {k}: {v}")
             print()
 
-    model = CroppyTrainerResnet(dropout=dropout, resnet_weights=mode_weights).to(device.value)
+    model = CroppyTrainer(dropout=dropout, resnet_weights=mode_weights).to(device.value)
     optimizer = Adam(model.parameters(), lr=learning_rate)
 
     
@@ -134,8 +138,10 @@ def train(
     for epoch in epochs_iter:
         model.train()
         
+        if verbose:
+            print(f"Starting epoch {epoch}.")
+        
         cumulative_train_loss = 0.0
-        cumulative_val_loss = 0.0
 
         if progress:
             sub_bar = tqdm.tqdm(total=len(train_dataloader), leave=True, position=1)
@@ -144,40 +150,38 @@ def train(
                 images, labels = images.to(device.value), labels.to(device.value)
     
                 optimizer.zero_grad()
-    
                 preds = model(images)
-    
                 loss = loss_function(preds, labels)
-    
                 loss.backward()
-    
                 optimizer.step()
-    
                 cumulative_train_loss += loss.item()
                 
                 if progress:
                     sub_bar.update(1)
+                
+            if progress:
+                sub_bar.close()
         except KeyboardInterrupt:
             print("Aborting due to user interruption...")
             break
-        
-        
+
         if validation_dataloader:
-            model.eval()
-            for v_images, v_labels in validation_dataloader:
-                v_preds = model(v_images)
-                cumulative_val_loss += loss_function(v_preds, v_labels)
+            epoch_val_loss = validation_data(
+                model=model, loader=validation_dataloader, loss_fn=loss_function, epoch=epoch, device=device
+            )
+            if tensorboard_logdir:
+                s_writer.add_scalar(tag="Validation loss", scalar_value=epoch_val_loss, global_step=epoch + 1)
         
         epoch_train_loss = cumulative_train_loss / (epoch + 1)
-        if validation_dataloader:
-            epoch_val_loss = cumulative_val_loss / (epoch + 1)
-                
         if verbose:
-            print(f"Epoch {epoch + 1}: train_loss={epoch_train_loss}, val_loss={epoch_val_loss}")
+            if validation_dataloader is not None:
+                print(f"Epoch {epoch + 1}: train_loss={epoch_train_loss}, val_loss={epoch_val_loss}")
+            else:
+                print(f"Epoch {epoch + 1}: train_loss={epoch_train_loss}")
         
-        s_writer.add_scalar(tag="Train loss", scalar_value=epoch_train_loss, global_step=epoch + 1)
-        if validation_dataloader:
-            s_writer.add_scalar(tag="Validation loss", scalar_value=epoch_val_loss, global_step=epoch + 1)
+        if tensorboard_logdir:
+            s_writer.add_scalar(tag="Train loss", scalar_value=epoch_train_loss, global_step=epoch + 1)
+                
 
     torch.save(model.state_dict(), out_file)
 

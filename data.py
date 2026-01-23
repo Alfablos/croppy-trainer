@@ -39,8 +39,8 @@ class SmartDocDataset(Dataset):
         lmdb_path: str,
         architecture: Architecture,
         precision: Precision,
-        image_transform: Optional[Callable] = None,
-        label_transform: Optional[Callable] = None,
+        image_transforms: Optional[Callable] = None,
+        label_transforms: Optional[Callable] = None,
         limit: Optional[int] = None
     ):
         super().__init__()
@@ -48,8 +48,8 @@ class SmartDocDataset(Dataset):
         self.precision = precision
         self.lmdb_path = lmdb_path
         self.env = None  # opened on first __getitem__
-        self.image_transform = image_transform
-        self.label_transform = label_transform
+        self.image_transform = image_transforms
+        self.label_transform = label_transforms
         self.limit = limit
 
 
@@ -70,10 +70,20 @@ class SmartDocDataset(Dataset):
         env = self._get_or_init_env()
         with env.begin(write=False) as transaction:
             # pickle.loads RETURNS A TUPLE FOR THE IMAGE!
-            image: NDArray = pickle.loads(transaction.get(img_idx.encode("ascii")))[0]
+            image: NDArray = pickle.loads(transaction.get(img_idx.encode("ascii")))
             label: NDArray = pickle.loads(transaction.get(lbl_idx.encode("ascii")))
                 
-
+            if isinstance(image, tuple):        # TODO: investigate
+                image = image[0]
+            else:
+                image = image
+            
+            if isinstance(label, tuple):
+                label = label[0]
+            else:
+                label = label
+        
+        
         if self.image_transform:
             image_tensor = self.image_transform(image)
         else:
@@ -105,65 +115,6 @@ class SmartDocDataset(Dataset):
             self.env_pid = os.getpid()
         return self.env
 
-
-if __name__ == "__main__":
-    print(f"Pytorch version: {torch.__version__}")
-
-    # crawl(
-    #     root=Path(
-    #         "/home/antonio/Downloads/extended_smartdoc_dataset/Extended Smartdoc dataset/train"
-    #     ),
-    #     images_ext="_in.png",
-    #     labels_ext="_gt.png",
-    #     output="./datatest.csv",
-    #     compute_corners=True,
-    #     check_normalization=True,
-    #     verbose=True,
-    #     precision=Precision.FP32,
-    # )
-
-    weights = visionmodels.ResNet18_Weights.DEFAULT
-    t = weights.transforms()
-    normalize = transformsV2.Normalize(mean=t.mean, std=t.std)
-    # Data augmentation: since the model will deal with smartphone pictures (JPEG)
-    # spoiling it with perfect PNGs would harm performamce
-    # JPEG(quality=) will make sure the model is robust against
-    # less-than-perfect pictures
-    train_transform = transformsV2.Compose(
-        [
-            transformsV2.ToImage(),
-            # do NOT add this to preprocessing or the NN will overfit those specific low-quality artifacts and fail
-            # to recognize those coming from smartphones
-            transformsV2.JPEG(quality=[50, 100]),
-            transformsV2.ToDtype(dtype=torch.float32, scale=True),
-            normalize,
-            transformsV2.ToPureTensor()
-        ]
-    )
-
-    resnet_train_ds = SmartDocDataset(
-        lmdb_path="./training_data/data_resnet_Float32.lmdb",
-        architecture=Architecture.RESNET,
-        precision=Precision.FP32,
-        image_transform=train_transform,
-        label_transform=None
-    )
-
-    dataloader = DataLoader(
-        pin_memory=True,  # Using CUDA
-        dataset=resnet_train_ds,
-        shuffle=True,
-    )
-
-    img, label = resnet_train_ds[0]
-    print(type(img))
-    exit(0)
-    
-    # img is a tensor (3, 512, 384), cv2 wants (512, 384, 3) and BGR
-    img_np = img.permute(1, 2, 0).numpy()
-    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-    cv2.imwrite("debug_sample.jpg", (img_bgr * 255).astype(np.uint8))
-    print(label)
 
     # ### U-Net
     # train_transform = transformsV2.Compose(

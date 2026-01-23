@@ -117,8 +117,8 @@ def run_train(args):
         lmdb_path=args.lmdb_path,
         architecture=Architecture.from_str(args.architecture),
         precision=Precision.from_str(args.precision),
-        image_transform=train_transforms,
-        label_transform=None,
+        image_transforms=train_transforms,
+        label_transforms=None,
         limit=args.limit
     )
 
@@ -140,8 +140,8 @@ def run_train(args):
             lmdb_path=args.validation_lmdb_path,
             architecture=Architecture.from_str(args.architecture),
             precision=Precision.from_str(args.precision),
-            image_transform=val_transforms,
-            label_transform=None,
+            image_transforms=val_transforms,
+            label_transforms=None,
             limit=args.limit
         )
     
