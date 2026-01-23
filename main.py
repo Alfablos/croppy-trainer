@@ -16,6 +16,7 @@ from architecture import Architecture
 if __name__ == "__main__":
     # python main.py pc -o ./ --height 512 --width 384 --compute-corners --strict --precision f32 --image-extension '_in.png' --label-extension '_gt.png' --architecture resnet --data-root ~/Downloads/extended_smartdoc_dataset/Extended\ Smartdoc\ dataset/train --purpose train -v
     # python main.py pc -o ./ --height 512 --width 384 --compute-corners --strict --precision f32 --image-extension '_in.png' --label-extension '_gt.png' --architecture resnet --data-root ~/Downloads/extended_smartdoc_dataset/Extended\ Smartdoc\ dataset/validation --purpose val -v
+    # python main.py train --db ./training_data/data_resnet_Float32.lmdb --valdb ./validation_data/data_resnet_Float32.lmdb -a resnet --lr 0.001 -e 100 --tensorboard --logdir=runs --progress # --limit 128
     parser = argparse.ArgumentParser()
     parser.set_defaults(func=lambda _: parser.print_help())
     # build-ds --data-root /home/antonio/Downloads/extended_smartdoc_dataset/Extended\ Smartdoc\ dataset/train --iext '_in.png' --lext='_gt.png' -o ./dataset.csv -v -n -c
