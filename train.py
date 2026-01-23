@@ -34,7 +34,7 @@ BATCH_SIZE: int = 64
 # BATCH_SIZE: int = 16 took 7h 50min
 
 
-class CroppyTrainer(nn.Module): # TODO: make it architecture-agnostic: take in base_model and fully_connected_layers to set self.model.fc
+class CroppyNet(nn.Module): # TODO: make it architecture-agnostic: take in base_model and fully_connected_layers to set self.model.fc
     def __init__(self, resnet_weights, dropout=0.3):
         super().__init__()
 
@@ -122,7 +122,7 @@ def train(
             print(f"==> {k}: {v}")
             print()
 
-    model = CroppyTrainer(dropout=dropout, resnet_weights=mode_weights).to(device.value)
+    model = CroppyNet(dropout=dropout, resnet_weights=mode_weights).to(device.value)
     optimizer = Adam(model.parameters(), lr=learning_rate)
 
     

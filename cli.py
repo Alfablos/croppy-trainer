@@ -1,9 +1,12 @@
+from pyexpat import model
+from sympy.functions.special.tests.test_error_functions import w
+from inference import predict
 from time import sleep
 import os
 from multiprocessing import cpu_count
 import argparse
 from torch.nn import L1Loss
-from train import train
+from train import train, CroppyNet
 from torch.utils.data import DataLoader
 from data import SmartDocDataset
 import torch
@@ -172,4 +175,16 @@ def run_train(args):
     )
     
     
+    def run_predict(args):
+        model = CroppyNet(visionmodels.ResNet18_Weights.DEFAULT)
+        model.load_state_dict(torch.load(args.weights, weights_only=True))
+        result = predict(
+            img_path=args.path,
+            architecture=Architecture.from_str(args.architecture),
+            h=args.height,
+            w=args.weight,
+            model=model,
+            device=Device.CUDA
+        )
+        print(result)
     

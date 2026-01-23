@@ -43,7 +43,7 @@ class Architecture(Enum):
             raise NotImplementedError(f"No precision type associated with {s}")
 
     @staticmethod
-    def _process_image(
+    def resize_image(
         path,
         h,
         w,
@@ -70,7 +70,7 @@ class Architecture(Enum):
         """
         Resize the image and return the coordinates from the mask.
         """
-        img_resized = Architecture._process_image(
+        img_resized = Architecture.resize_image(
             row["image_path"], h, w, resize=True, color=True
         )
 
@@ -91,13 +91,13 @@ class Architecture(Enum):
         ipath = row["image_path"]
         mpath = row["label_path"]
 
-        img_resized = Architecture._process_image(
+        img_resized = Architecture.resize_image(
             row["image_path"], h, w, resize=True, color=True
         )
 
         mask = cv2.imread(row["label_path"], cv2.IMREAD_GRAYSCALE)
 
-        mask_resized = Architecture._process_image(
+        mask_resized = Architecture.resize_image(
             mpath, h, w, color=False, resize=True, interpolation=cv2.INTER_NEAREST
         )
 

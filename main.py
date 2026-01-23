@@ -28,6 +28,10 @@ if __name__ == "__main__":
         name = "train", help="Trains Croppy"
     )
     
+    predict_cmd = supbparsers.add_parser(
+        name = "predict", help="Perform inference on the given image"
+    )
+     
     dependencies_cmd = supbparsers.add_parser(
         name="dependencies", aliases = ["deps"], help="Get dependencies version"
     )
@@ -132,6 +136,12 @@ if __name__ == "__main__":
     train_cmd.add_argument("--tensorboard-logdir", "--logdir", required=False, type=str)
     train_cmd.set_defaults(func=run_train)
     
+    
+    predict_cmd.add_argument("path")
+    predict_cmd.add_argument("--weights", "-w", required=True)
+    predict_cmd.add_argument("--architecture", "--arch", "-a", required=True)
+    predict_cmd.add_argument("--height", "-H", type=int, required=True)
+    predict_cmd.add_argument("--width", "-W", type=int, required=True)
 
     args = parser.parse_args()
     args.func(args)
