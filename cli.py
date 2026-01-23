@@ -175,16 +175,17 @@ def run_train(args):
     )
     
     
-    def run_predict(args):
-        model = CroppyNet(visionmodels.ResNet18_Weights.DEFAULT)
-        model.load_state_dict(torch.load(args.weights, weights_only=True))
-        result = predict(
-            img_path=args.path,
-            architecture=Architecture.from_str(args.architecture),
-            h=args.height,
-            w=args.weight,
-            model=model,
-            device=Device.CUDA
-        )
-        print(result)
+def run_predict(args):
+    model = CroppyNet(visionmodels.ResNet18_Weights.DEFAULT)
+    model.load_state_dict(torch.load(args.weights, weights_only=True))
+    model = model.to(Device.CUDA.value)
+    result = predict(
+        img_path=args.path,
+        architecture=Architecture.from_str(args.architecture),
+        h=args.height,
+        w=args.width,
+        model=model,
+        device=Device.CUDA
+    )
+    print(result)
     

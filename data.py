@@ -87,7 +87,7 @@ class SmartDocDataset(Dataset):
         if self.image_transform:
             image_tensor = self.image_transform(image)
         else:
-            image_tensor = torch.tensor(image, dtype=self.precision.to_type_gpu())
+            image_tensor = torch.from_numpy(image)
             # Converts from (h, w, c) into (c, h, w), which pytorch expects.
             # https://docs.pytorch.org/vision/stable/transforms.html
             image_tensor = image_tensor.permute(2, 0, 1)
@@ -95,7 +95,7 @@ class SmartDocDataset(Dataset):
         if self.label_transform:
             label_tensor = self.label_transform(label)
         else:
-            label_tensor = torch.tensor(label, dtype=self.precision.to_type_gpu())
+            label_tensor = torch.from_numpy(label)
 
         return image_tensor, label_tensor
 
