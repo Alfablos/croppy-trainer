@@ -18,12 +18,13 @@ def predict(
     device: Device,
     base_weights=visionmodels.ResNet18_Weights.DEFAULT,
 ) -> torch.Tensor:
+    model.eval()
+    
     transforms = get_transforms(
         weights=model.weights,
         precision=model.precision,
         train=False
     )
-    model.to(device.value)
 
     inf_input: torch.Tensor = transforms(image)
     input_as_batch = inf_input.unsqueeze(0).to(device.value) # add a dimension, the model expects a batch
@@ -55,3 +56,4 @@ def draw_box(corners_coords: NDArray, image: NDArray):
     # Draws the corners
     for xy in corners_coords:
         cv2.circle(center=xy, img=image, color=(255, 0, 0), radius=5, thickness=-1)
+    cv2.polylines(image, [corners_coords], isClosed=True, color=(255, 0, 0))
