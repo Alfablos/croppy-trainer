@@ -102,6 +102,10 @@ def crawl(
 
     if verbose:
         progress = tqdm(total=len(images), desc="Pairing examples and labels")
+        
+    output_p = Path(output)
+    if not output_p.parent.exists():
+        output_p.parent.mkdir(parents=True)
 
     for image, label in zip(images, labels, strict=True):
         try:
