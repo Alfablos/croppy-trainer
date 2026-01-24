@@ -18,7 +18,6 @@ def crawl(
     output: str,
     images_ext: str,
     labels_ext: str,
-    precision: Precision,
     compute_corners=True,
     check_normalization=True,
     verbose=False,
@@ -82,7 +81,7 @@ def crawl(
         raise ValueError(
             "Please, provide the extension for labels. For example `.png` or `_lbl.png`"
         )
-    
+
     if not root.exists():
         raise ValueError(f"Root path {root} does not exist.")
 
@@ -109,29 +108,16 @@ def crawl(
             row = {"image_path": image, "label_path": label}
 
             if compute_corners:
-                f = cv2.imread(filename=str(label), flags=cv2.IMREAD_GRAYSCALE)
+                mask = cv2.imread(filename=str(label), flags=cv2.IMREAD_GRAYSCALE)
 
-                if precision != Precision.UINT8:  # only normalize if not on uint8
-                    mask = np.divide(f.astype(precision.to_type_cpu()), 255.0)
-                else:
-                    mask = f.astype(precision.to_type_cpu())
 
                 coords = utils.coords_from_segmentation_mask(
-                    mask, precision, device=Device.CPU
+                    mask, device=Device.CPU
                 )
                 fields = ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"]
                 for coord_name, value in zip(fields, coords):
-                    if (
-                        value > 1
-                        and precision != Precision.UINT8
-                        and check_normalization
-                    ):
-                        print(
-                            f"Warning: label {label} has {coord_name} coordinate with a value > 1 ({value}): {coords}\nYou may want to check your normalization algorithm.",
-                            file=sys.stderr,
-                        )
-
                     row[coord_name] = value
+            
             rows.append(row)
 
             if verbose:

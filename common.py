@@ -1,3 +1,6 @@
+from tensorboard.compat.tensorflow_stub.errors import UnimplementedError
+from markdown.test_tools import Kwargs
+from torch.nn import L1Loss
 from typing import Any
 from enum import Enum
 
@@ -10,12 +13,12 @@ def device_from_obj(x: torch.Tensor | np.ndarray):
 
 
 class Purpose(Enum):
-    TRAIN = 'train'
-    VALIDATION = 'validation'
-    TEST = 'test'
-    
+    TRAIN = "train"
+    VALIDATION = "validation"
+    TEST = "test"
+
     def __str__(self) -> str:
-        return self.value            
+        return self.value
 
     @staticmethod
     def from_str(s: str):
@@ -30,12 +33,11 @@ class Purpose(Enum):
             raise NotImplementedError(f"No purpose associated with {s}")
 
 
-
 class Device(Enum):
     CPU = "cpu"
     CUDA = "cuda"
     MPS = "mps"
-    
+
     def __str__(self):
         return self.value
 
@@ -44,25 +46,25 @@ class Device(Enum):
             return self.CPU
         else:
             return self.CUDA
-    
+
     @staticmethod
     def from_str(s: str):
         s = s.lower()
-        if s == "cuda":
+        if s in ["cuda", "gpu"]:
             return Device.CUDA
         elif s == "cpu":
             return Device.CPU
-        elif s == "mps":
+        elif s in ["mps", "metal"]:
             return Device.MPS
         else:
             raise NotImplementedError(f"No device type associated with {s}")
-            
 
 
 class Precision(Enum):
     FP32 = 32  # 4 bytes
     FP16 = 16
     UINT8 = 8
+
     def __str__(self):
         if self == Precision.FP32:
             return "Float32"
@@ -110,3 +112,10 @@ class Precision(Enum):
             raise NotImplementedError(
                 f"No type associated with {self} for GPU. This is a bug!"
             )
+
+def loss_from_str(s: str, **loss_opts):
+    s = s.lower()
+    if s == "l1loss":
+        return L1Loss(loss_opts)
+    else:
+        raise UnimplementedError

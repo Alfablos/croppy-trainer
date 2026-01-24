@@ -41,7 +41,7 @@ class SmartDocDataset(Dataset):
         precision: Precision,
         image_transforms: Optional[Callable] = None,
         label_transforms: Optional[Callable] = None,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
     ):
         super().__init__()
 
@@ -51,7 +51,6 @@ class SmartDocDataset(Dataset):
         self.image_transform = image_transforms
         self.label_transform = label_transforms
         self.limit = limit
-
 
     def __len__(self):
         if self.limit is not None:
@@ -72,18 +71,17 @@ class SmartDocDataset(Dataset):
             # pickle.loads RETURNS A TUPLE FOR THE IMAGE!
             image: NDArray = pickle.loads(transaction.get(img_idx.encode("ascii")))
             label: NDArray = pickle.loads(transaction.get(lbl_idx.encode("ascii")))
-                
-            if isinstance(image, tuple):        # TODO: investigate
+
+            if isinstance(image, tuple):  # TODO: investigate
                 image = image[0]
             else:
                 image = image
-            
+
             if isinstance(label, tuple):
                 label = label[0]
             else:
                 label = label
-        
-        
+
         if self.image_transform:
             image_tensor = self.image_transform(image)
         else:
@@ -91,7 +89,7 @@ class SmartDocDataset(Dataset):
             # Converts from (h, w, c) into (c, h, w), which pytorch expects.
             # https://docs.pytorch.org/vision/stable/transforms.html
             image_tensor = image_tensor.permute(2, 0, 1)
-        
+
         if self.label_transform:
             label_tensor = self.label_transform(label)
         else:
@@ -103,7 +101,7 @@ class SmartDocDataset(Dataset):
         # The worker is FORKED by pytorch and if env is open at the time of the fork
         # the handle is copied to. The problem is that at that point
         # another process (forked) will try to access the first worker's memory:
-            # segmentation fault!
+        # segmentation fault!
         if self.env is None or self.env_pid != os.getpid():
             self.env = lmdb.open(
                 self.lmdb_path,
@@ -115,6 +113,19 @@ class SmartDocDataset(Dataset):
             self.env_pid = os.getpid()
         return self.env
 
+
+def get_transforms(weights, precision: Precision, train=False):
+    t = weights.transforms()
+    transforms = [
+        transformsV2.ToImage(),
+        transformsV2.ToDtype(precision.to_type_gpu(), scale=True),
+        transformsV2.Normalize(mean=t.mean, std=t.std),
+    ]
+
+    if train:
+        transforms.insert(1, transformsV2.JPEG(quality=[50, 100]))
+
+    return transformsV2.Compose(transforms)
 
     # ### U-Net
     # train_transform = transformsV2.Compose(
