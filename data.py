@@ -118,7 +118,7 @@ def get_transforms(weights, precision: Precision, train=False):
     t = weights.transforms()
     transforms = [
         transformsV2.ToImage(),
-        transformsV2.ToDtype(precision.to_type_gpu(), scale=True),
+        transformsV2.ToDtype(torch.float32, scale=True),
         transformsV2.Normalize(mean=t.mean, std=t.std),
     ]
 
@@ -126,27 +126,3 @@ def get_transforms(weights, precision: Precision, train=False):
         transforms.insert(1, transformsV2.JPEG(quality=[50, 100]))
 
     return transformsV2.Compose(transforms)
-
-    # ### U-Net
-    # train_transform = transformsV2.Compose(
-    #     [
-    #         transformsV2.ToImage(),
-    #         # do NOT add this to preprocessing or the NN will overfit these low-quality artifacts and fail
-    #         # to recognize those coming from smartphones
-    #         transformsV2.JPEG(quality=[50, 100]),
-    #         transformsV2.ToDtype(dtype=torch.float32, scale=True),
-    #         normalize,
-    #     ]
-    # )
-    # train_target_transform = transformsV2.Compose([
-    #     transformsV2.ToImage(),
-    #     # No scaling! Masks usually need to be 0 or 1 integers/floats, not normalized.
-    #     transformsV2.ToDtype(torch.float32, scale=False),
-    # ])
-    # unet_train_ds = SmartDocDataset(
-    #     lmdb_path='./training_data/data_unet_Float32.lmdb',
-    #     architecture=Architecture.UNET,
-    #     image_transform=train_transform,
-    #     label_transform=train_target_transform,
-    #     in_memory_cache=True
-    # )
