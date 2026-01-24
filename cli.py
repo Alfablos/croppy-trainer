@@ -1,10 +1,12 @@
+import cv2
+from numpy.typing import NDArray
 import lmdb
 from torch.distributed.checkpoint.planner import WriteItem
 import json
 from tensorboard.compat.tensorflow_stub.errors import UnimplementedError
 from pyexpat import model
 from sympy.functions.special.tests.test_error_functions import w
-from inference import predict
+from inference import predict, get_image_points, draw_box
 from time import sleep
 import os
 from multiprocessing import cpu_count
@@ -205,10 +207,28 @@ def run_predict(args):
         config = json.loads(c.read())
         device = args.device
         model = CroppyNet.from_trained_config(config, Device.from_str(device))
+
+    # load image and convert to RGB from BGR
+    image = cv2.imread(args.path, cv2.IMREAD_COLOR)
+    image: NDArray = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     
-    result = predict(
-        img_path=args.path,
+    resized_image: NDArray = Architecture.resize_image(
+        args.path, h=model.images_height, w=model.images_width, color=True, resize=True, interpolation=cv2.INTER_AREA
+    )
+    
+    norm_coords = predict(
+        image=resized_image,
         model=model,
         device=Device.from_str(args.device)
     )
-    print(result)
+    actual_coords = get_image_points(
+        image.shape, # NOT RESIZED!
+        norm_coords
+    )
+    
+    draw_box(actual_coords, image)
+    
+    outpath = args.path + '_pred.jpg'
+    cv2.imwrite(outpath, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+    
+    print(f"Image saved to: {outpath}")
