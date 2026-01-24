@@ -210,12 +210,6 @@ def train(
                     epoch=epoch,
                     device=model.target_device,
                 )
-                if tensorboard_logdir:
-                    s_writer.add_scalar(
-                        tag="Validation loss",
-                        scalar_value=epoch_val_loss,
-                        global_step=epoch + 1,
-                    )
             except KeyboardInterrupt:
                 print("Aborting due to user interruption...")
                 break
