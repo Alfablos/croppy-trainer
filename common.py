@@ -13,7 +13,7 @@ def device_from_obj(x: torch.Tensor | np.ndarray):
 
 
 class Purpose(Enum):
-    TRAIN = "train"
+    TRAIN = "training"
     VALIDATION = "validation"
     TEST = "test"
 
