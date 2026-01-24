@@ -99,10 +99,10 @@ def precompute(
 
     print(f"Allocating {total_map_size / (1024**3):.2f} GB for the lmdb store.")
 
-    db_path = str(output_dir) + f"/data_{architecture.value}_{str(purpose)}.lmdb"
+    db_path = str(output_dir) + f"/data_{architecture.value}_{str(purpose)}_{data_length}x{target_h}x{target_w}.lmdb"
     if os.path.exists(db_path):
         raise FileExistsError(db_path)
-    index_path = str(output_dir) + f"/index_{architecture.value}_{str(purpose)}.csv"
+    index_path = str(output_dir) + f"/index_{architecture.value}_{str(purpose)}_{data_length}x{target_h}x{target_w}.csv"
     if os.path.exists(index_path):
         raise FileExistsError(index_path)
 

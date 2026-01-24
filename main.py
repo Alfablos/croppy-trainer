@@ -1,3 +1,4 @@
+import torch
 from multiprocessing import cpu_count
 from cli import dependencies, run_crawl, run_precompute, run_train, run_predict
 import subprocess
@@ -165,10 +166,7 @@ if __name__ == "__main__":
 
     predict_cmd.add_argument("path")
     predict_cmd.add_argument("--config", "-c", required=True, help="The JSON model config file.")
-    predict_cmd.add_argument("--architecture", "--arch", "-a", required=True)
-    predict_cmd.add_argument("--device", "--dev", "-d", required=True)
-    predict_cmd.add_argument("--height", "-H", type=int, required=True)
-    predict_cmd.add_argument("--width", "-W", type=int, required=True)
+    predict_cmd.add_argument("--device", "--dev", "-d", required=False, help="Device to run inference on", default='cuda' if torch.cuda.is_available() else 'cpu')
     predict_cmd.set_defaults(func=run_predict)
 
     args = parser.parse_args()

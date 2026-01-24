@@ -1,3 +1,5 @@
+import lmdb
+from torch.distributed.checkpoint.planner import WriteItem
 import json
 from tensorboard.compat.tensorflow_stub.errors import UnimplementedError
 from pyexpat import model
@@ -122,6 +124,14 @@ def run_precompute(args):
 
 def run_train(args):
     weights = DEFAULT_WEIGHTS
+    
+    # Retrieve height and width from the LMDB store
+    env = lmdb.open(write=False, lock=False, readahead=False, meminit=False)
+    with env.begin(args.lmdb_path) as t:
+        h = int.from_bytes(t.get("h".encode("ascii"), "big"))
+        w = int.from_bytes(t.get("w".encode("ascii"), "big"))
+        
+    
 
     train_transforms = get_transforms(
         weights=weights, precision=Precision.from_str(args.precision), train=True
@@ -170,6 +180,8 @@ def run_train(args):
         architecture=Architecture.from_str(args.architecture),
         precision=args.precision,
         loss_fn=L1Loss(),
+        images_height=h,
+        images_width=w,
         target_device=Device.from_str(args.device),
         learning_rate=args.learning_rate,
         dropout=args.dropout,
@@ -190,14 +202,13 @@ def run_train(args):
 
 def run_predict(args):
     with open(args.config, 'r') as c:
-        model = CroppyNet.from_trained_config(json.loads(c.read()), Device.from_str(args.device))
+        config = json.loads(c.read())
+        device = args.device
+        model = CroppyNet.from_trained_config(config, Device.from_str(device))
     
     result = predict(
         img_path=args.path,
-        architecture=Architecture.from_str(args.architecture),
-        h=args.height,
-        w=args.width,
         model=model,
-        device=Device.CUDA,
+        device=Device.from_str(args.device)
     )
     print(result)

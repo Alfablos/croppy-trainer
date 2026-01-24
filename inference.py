@@ -1,3 +1,4 @@
+from data import get_transforms
 from common import Device
 from torch.utils.hipify.cuda_to_hip_mappings import PYTORCH_SPECIFIC_MAPPINGS
 import torch
@@ -10,29 +11,23 @@ from architecture import Architecture
 from numpy.typing import NDArray
 
 
+@torch.no_grad()
 def predict(
     img_path: str,
-    architecture: Architecture,
-    h: int,
-    w: int,
     model: CroppyNet,
-    device: Device = Device.CUDA,
+    device: Device,
     base_weights=visionmodels.ResNet18_Weights.DEFAULT,
 ) -> torch.Tensor:
-    resized: NDArray = architecture.resize_image(
-        img_path, h=h, w=w, color=True, resize=True, interpolation=cv2.INTER_AREA
+    resized: NDArray = Architecture.resize_image(
+        img_path, h=model.images_height, w=model.images_width, color=True, resize=True, interpolation=cv2.INTER_AREA
     )
-    t = base_weights.transforms()
-    pipeline = transformsV2.Compose(
-        [
-            transformsV2.ToImage(),
-            transformsV2.ToDtype(torch.float32, scale=True),
-            transformsV2.Normalize(mean=t.mean, std=t.std),
-        ]
+    transforms = get_transforms(
+        weights=model.weights,
+        precision=model.precision,
+        train=False
     )
 
-    inf_input: torch.Tensor = pipeline(resized)
-    input_as_batch = inf_input.unsqueeze(0).to(device.value)
+    inf_input: torch.Tensor = transforms(resized)
+    input_as_batch = inf_input.unsqueeze(0).to(device.value) # add a dimension, the model expects a batch
 
-    with torch.inference_mode():
-        return model(input_as_batch)
+    return model(input_as_batch)

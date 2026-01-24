@@ -48,6 +48,8 @@ class CroppyNet(
         precision: Precision,
         loss_fn: Callable,
         target_device: Device,
+        images_height: int,
+        images_width: int,
         learning_rate: float = 0.001,
         dropout=0.3,
     ):
@@ -58,6 +60,8 @@ class CroppyNet(
         self.precision = precision
         self.loss_fn = loss_fn
         self.target_device = target_device
+        self.images_height: int = images_height
+        self.images_width = images_width
         self.dropout = dropout
         self.learning_rate = learning_rate
         self.model = visionmodels.resnet18(weights=weights, progress=True)
@@ -87,11 +91,13 @@ class CroppyNet(
         model: CroppyNet = CroppyNet(
             weights=DEFAULT_WEIGHTS,
             loss_fn=loss_from_str(config['loss_fn']),
-            architecture=config['architecture'],
+            architecture=Architecture.from_str(config['architecture']),
             target_device=device,
-            precision=config['precision']
+            images_height=config['images_height'],
+            images_width=config['images_width'],
+            precision=Precision.from_str(config['precision'])
         )
-        model.load_state_dict(torch.load(config['name'] + 'pth', weights_only=True))
+        model.load_state_dict(torch.load(config['weights_file'], weights_only=True))
         return model.to(device.value) # adds a validation step
 
 
@@ -136,7 +142,7 @@ def train(
 
 
     out_name = (
-        f"{model.architecture}_{model.dropout}dropout_{model.learning_rate}lr_{epochs}_epochs_{model.target_device}_{model.precision}_{train_len}"
+        f"{model.architecture}_{model.dropout}dropout_{model.learning_rate}lr_{epochs}epochs_{model.precision}_{train_len}x{model.images_height}x{model.images_width}"
     )
     weights_file = out_dir + '/' + out_name + ".pth"
     spec_file = out_dir + '/' + out_name + ".json"
@@ -242,10 +248,12 @@ def train(
             json.dumps(
                 {
                     "name": out_name,
+                    "weights_file": weights_file,
                     "architecture": f"{model.architecture}",
                     "precision": f"{model.precision}",
                     "loss_fn": model.loss_function(),
-                    "device": f"{model.target_device}",
+                    "images_height": model.images_height,
+                    "images_width": model.images_width,
                     "dropout": model.dropout,
                     "learning_rate": model.learning_rate,
                     "epochs": epochs,
