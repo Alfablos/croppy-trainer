@@ -28,7 +28,8 @@ from train import DEFAULT_WEIGHTS
 
 
 def version(module):
-    print(f"{module.__name__}=={module.__version__}")
+    import re
+    print(f"{module.__name__}==" + re.sub(r"\+.*", "", module.__version__))
 
 
 def dependencies(_args):
@@ -128,9 +129,9 @@ def run_train(args):
     weights = DEFAULT_WEIGHTS
     
     # Retrieve height and width from the LMDB store
-    env = lmdb.open(write=False, lock=False, readahead=False, meminit=False)
-    with env.begin(args.lmdb_path) as t:
-        h = int.from_bytes(t.get("h".encode("ascii"), "big"))
+    env = lmdb.open(args.lmdb_path, lock=False, readahead=False, meminit=False)
+    with env.begin(write=False) as t:
+        h = int.from_bytes(t.get("h".encode("ascii")), "big")
         w = int.from_bytes(t.get("w".encode("ascii"), "big"))
         
     
@@ -232,3 +233,4 @@ def run_predict(args):
     cv2.imwrite(outpath, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
     
     print(f"Image saved to: {outpath}")
+
