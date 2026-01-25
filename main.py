@@ -1,6 +1,6 @@
 import torch
 from multiprocessing import cpu_count
-from cli import dependencies, run_crawl, run_precompute, run_train, run_predict
+from cli import run_crawl, run_precompute, run_train, run_predict
 import subprocess
 from sympy.printing.pretty.pretty_symbology import sup
 from jinja2.nodes import FromImport
@@ -31,11 +31,6 @@ if __name__ == "__main__":
     predict_cmd = supbparsers.add_parser(
         name="predict", help="Perform inference on the given image"
     )
-
-    dependencies_cmd = supbparsers.add_parser(
-        name="dependencies", aliases=["deps"], help="Get dependencies version"
-    )
-    dependencies_cmd.set_defaults(func=dependencies)
 
     ## crawl ##
     crawl_cmd = supbparsers.add_parser(

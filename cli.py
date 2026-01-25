@@ -27,48 +27,7 @@ from torchvision.transforms import v2 as transformsV2
 from common import DEFAULT_WEIGHTS
 
 
-def version(module):
-    import re
-    print(f"{module.__name__}==" + re.sub(r"\+.*", "", module.__version__))
 
-
-def dependencies(_args):
-    import numpy
-
-    version(numpy)
-    import pandas
-
-    version(pandas)
-    import pytest
-
-    version(pytest)
-    import torch
-
-    version(torch)
-    import torchvision
-
-    version(torchvision)
-    import tensorboard
-
-    version(tensorboard)
-    import PIL
-
-    version(PIL)
-    import cv2
-
-    version(cv2)
-    import matplotlib
-
-    version(matplotlib)
-    import tqdm
-
-    version(tqdm)
-    import lmdb
-
-    version(lmdb)
-
-
-# complete this function
 def run_crawl(args):
     crawl(
         root=Path(args.data_root),
