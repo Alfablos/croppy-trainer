@@ -1,3 +1,5 @@
+from pathlib import Path
+import os
 from sys import argv
 from pandas.tests.arrays.masked.test_arrow_compat import pa
 import time
@@ -32,7 +34,6 @@ def resize_img(img, h: int, w: int, interpolation=cv2.INTER_AREA):
     return cv2.resize(img, (int(w), int(h)), interpolation=interpolation)
 
 
-
 def find_max_dims(paths: List[str]):
     """
     Given a list of image paths it returns the biggest height and biggest width found
@@ -54,7 +55,6 @@ def find_max_dims(paths: List[str]):
 
 def coords_from_segmentation_mask(
     mask: NDArray | torch.Tensor,
-    precision: Precision,
     device: Device = Device.CPU,
 ) -> torch.Tensor | NDArray:
     """
@@ -65,8 +65,6 @@ def coords_from_segmentation_mask(
 
     :returns coords: a torch tensor of 8 NORMALIZED points
     """
-    if not precision:
-        raise ValueError("Precision MUST be set.")
 
     gpu = device is not Device.CPU
 
@@ -77,30 +75,14 @@ def coords_from_segmentation_mask(
 
     ## Normalization check (only for FP32 and FP16) ##
     bad_norm = (False, None)
-    if (
-        precision != Precision.UINT8
-    ):  # Normalization of images shouldn't happen for uint8
-        # This also covers for integer overflow due to selecting the wrong integer type
-        # int8 range from -127 to 127 so a value of 255 overflows to -1
-        if gpu:
-            if (mask > 1.0).any() or (mask < 0.0).any():
-                bad_norm = (True, "gpu")
-        else:
-            if np.any(mask > 1) or np.any(mask < 0):
-                bad_norm = (True, "cpu")
 
-        if bad_norm[0]:
-            raise ValueError(
-                f"Mask values should be >= 0 and >= 1. You may want to check your normalization algorithm. (device={bad_norm[1]}, dtype={mask.dtype}, precision={precision})"
-            )
-
-    threshold = 127 if precision == Precision.UINT8 else 0.5
+    threshold = 127 
 
     h, w = mask.shape
 
     ## Compute pixel coordinates ##
     # not using mask > 0 (masks for the dataset only have black or white pixels) because if cv2 applies any filters
-    # that make some white pixel go toward "black" they'd be counted as black
+    # that make some white pixel go toward "black" (even a bit) they'd be counted as black
     # 127 gives 126 of such filter tolerance without altering the result (losing precision)
     if gpu:
         # select the white pixels
@@ -137,34 +119,37 @@ def coords_from_segmentation_mask(
         tr = white_xy[torch.argmin(topright_to_bottomleft_diagonal)]
         br = white_xy[torch.argmax(topleft_to_bottoright_diagonal)]
         bl = white_xy[torch.argmax(topright_to_bottomleft_diagonal)]
+        return torch.tensor([tl, tr, br, bl], dtype=torch.uint8).flatten()
     else:
         tl = white_xy[np.argmin(topleft_to_bottoright_diagonal)]  # Smallest x + y
         tr = white_xy[np.argmin(topright_to_bottomleft_diagonal)]  # Smallest y - x
         br = white_xy[np.argmax(topleft_to_bottoright_diagonal)]  # Largest x + y
         bl = white_xy[np.argmax(topright_to_bottomleft_diagonal)]  # Largest y - x
+        return np.array([tl, tr, br, bl], dtype=np.uint8()).flatten()
 
-    # normalization
-    if gpu:
-        corners = torch.stack([tl, tr, br, bl])
-        w_h = torch.tensor([w, h], device=device.value, dtype=torch.float32)
-        return (corners / w_h).flatten()
-    else:
-        # w and h are, for example 512 and 1024
-        # tl may be [691, 23]
-        # norm_tl = [x/w, y/h] = [ 691 / 512, 23 / 1024 ]
-        norm_tl = [tl[0] / w, tl[1] / h]
-        norm_tr = [tr[0] / w, tr[1] / h]
-        norm_br = [br[0] / w, br[1] / h]
-        norm_bl = [bl[0] / w, bl[1] / h]
+    # # normalization
+    # if gpu:
+    #     corners = torch.stack([tl, tr, br, bl])
+    #     w_h = torch.tensor([w, h], device=device.value, dtype=torch.float32)
+    #     return (corners / w_h).flatten()
+    # else:
+    #     # w and h are, for example, 512 and 1024
+    #     # tl may be [691, 23]
+    #     # norm_tl = [x/w, y/h] = [ 691 / 512, 23 / 1024 ]
+    #     norm_tl = [tl[0] / w, tl[1] / h]
+    #     norm_tr = [tr[0] / w, tr[1] / h]
+    #     norm_br = [br[0] / w, br[1] / h]
+    #     norm_bl = [bl[0] / w, bl[1] / h]
 
-        return np.array([norm_tl, norm_tr, norm_br, norm_bl]).flatten()
-
+    #     return np.array([norm_tl, norm_tr, norm_br, norm_bl]).flatten()
 
 
 def launch_tensorboard(log_dir: str, host: str = "0.0.0.0", port: int = 6006) -> str:
     tb = tensorboard.program.TensorBoard()
     tb.configure(argv=[None, "--logdir", log_dir, "--host", host, "--port", str(port)])
+
+    if not os.path.exists(log_dir):
+        Path(log_dir).mkdir(parents=True, exist_ok=True)
+
     url = tb.launch()
     return url
-    
-    

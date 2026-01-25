@@ -1,14 +1,20 @@
+import common
+from pandas.core.algorithms import mode
+from tensorboard.compat.tensorflow_stub.errors import UnimplementedError
+from pathlib import Path
+import torch.distributed.optim.post_localSGD_optimizer
 import architecture
 from typing import Optional
 import tqdm
 import typing
 from torch.multiprocessing import cpu_count
-from common import Precision
+from common import Precision, loss_from_str
 from architecture import Architecture
-from data import SmartDocDataset
+from data import SmartDocDataset, get_transforms
 from enum import Enum
 from typing import Callable
 import os
+import json
 
 import cv2
 import pandas as pd
@@ -25,21 +31,38 @@ from PIL import Image
 
 import utils
 import data
-from common import Device
+from common import Device, DEFAULT_WEIGHTS
 
 
-IMAGE_SIZE: int = 512
-DEFAULT_WEIGHTS = visionmodels.ResNet18_Weights.DEFAULT
-BATCH_SIZE: int = 64
-# BATCH_SIZE: int = 16 took 7h 50min
 
 
-class CroppyTrainer(nn.Module): # TODO: make it architecture-agnostic: take in base_model and fully_connected_layers to set self.model.fc
-    def __init__(self, resnet_weights, dropout=0.3):
+class CroppyNet(
+    nn.Module
+):  # TODO: make it architecture-agnostic: take in base_model and fully_connected_layers to set self.model.fc
+    def __init__(
+        self,
+        weights,
+        architecture: Architecture,
+        precision: Precision,
+        loss_fn: Callable,
+        target_device: Device,
+        images_height: int,
+        images_width: int,
+        learning_rate: float = 0.001,
+        dropout=0.3,
+    ):
         super().__init__()
 
-        # self.architecture = architecture
-        self.model = visionmodels.resnet18(weights=resnet_weights, progress=True)
+        self.weights = weights
+        self.architecture = architecture
+        self.precision = precision
+        self.loss_fn = loss_fn
+        self.target_device = target_device
+        self.images_height: int = images_height
+        self.images_width = images_width
+        self.dropout = dropout
+        self.learning_rate = learning_rate
+        self.model = visionmodels.resnet18(weights=weights, progress=True)
         self.model.fc = Sequential(
             Dropout(p=dropout),
             # Adding not just one final layer but two, to give the model
@@ -51,114 +74,139 @@ class CroppyTrainer(nn.Module): # TODO: make it architecture-agnostic: take in b
             Linear(in_features=128, out_features=8),
             Sigmoid(),  # between 0 and 1 for each coordinate
         )
-        self.weights = resnet_weights
+        self.weights = weights
 
     def forward(self, x):
         return self.model(x)
-    # def get_architecture(self):
-    #     return self.architecture
+
+    def loss_function(self):
+        if isinstance(self.loss_fn, L1Loss):
+           return "L1Loss"
+        else:
+            raise UnimplementedError
+    
+    def from_trained_config(config: dict, device: Device):
+        model: CroppyNet = CroppyNet(
+            weights=DEFAULT_WEIGHTS,
+            loss_fn=loss_from_str(config['loss_fn']),
+            architecture=Architecture.from_str(config['architecture']),
+            target_device=device,
+            images_height=config['images_height'],
+            images_width=config['images_width'],
+            precision=Precision.from_str(config['precision'])
+        )
+        model.load_state_dict(torch.load(config['weights_file'], weights_only=True))
+        return model.to(device.value) # adds a validation step
 
 
+@torch.no_grad()
 def validation_data(model, loader, loss_fn, epoch: int, device: Device) -> float:
     model.eval()
     val_loss = 0.0
 
-    with torch.no_grad():
-        for images, labels in loader:
-            images, labels = images.to(device.value), labels.to(device.value)
+    for images, labels in loader:
+        images, labels = images.to(device.value), labels.to(device.value)
+        
+        gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Precision.FP32, train=True).to('cuda')
+        images, labels = gpu_transforms(images.to('cuda'), labels.to('cuda'))
+        new_h, new_w = images.shape[-2:]
+        labels = labels / torch.tensor([new_w, new_h], device='cuda')
+        labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 0.1)
 
-            preds = model(images)
-            val_loss += loss_fn(preds, labels).item()
-        return val_loss / (epoch + 1)
+        preds = model(images)
+        val_loss += loss_fn(preds, labels).item()
+    return val_loss / len(loader)
 
-
-s_writer = SummaryWriter()
 
 def train(
-    out_file,
+    model: CroppyNet,
     train_dataloader: DataLoader,
     validation_dataloader: DataLoader | None,
-    mode_weights,
-    dropout: float,
-    device: Device,
-    loss_function: Callable,
-    learning_rate: float,
     epochs: int,
-    tensorboard_logdir: str | None=None,
+    out_dir: str,
+    train_len, # only to append the information to filename and specs
+    with_tensorboard: bool = False,
     verbose=False,
     progress=False,
-    with_tensorboard: bool = False
 ):
-    if mode_weights is None:
-        raise ValueError("`model_weights` must be specified!")
-    if dropout is None:
-        raise ValueError("A `dropout` must be specified!")
-    if device is None:
-        raise ValueError("A `device` must be specified!")
     if train_dataloader is None:
         raise ValueError("A `train_dataloader` must be specified!")
-    if learning_rate is None:
-        raise ValueError("A `learning_rate` must be specified!")
     if epochs is None:
         raise ValueError("A value for `epochs` must be specified!")
-    if loss_function is None:
-        raise ValueError("A `loss_function` must be specified!")
-    if not out_file:
-        out_file = f"model_{dropout}dropout_{learning_rate}lr_{epochs}epochs.pth"
-    if not with_tensorboard and tensorboard_logdir:
-        raise ValueError("Error: A tensorboard log directory was specified but tensorboard is not enabled!")
-    if with_tensorboard and not tensorboard_logdir:
-        raise ValueError("A tensorboard logdir must be specified if ensorboard is enabled.")
-
-    try:
-        os.stat(out_file)
-        raise ValueError(f"{out_file} already exists.")
-    except OSError:
-        pass
     
+    out_dir = out_dir.rstrip('/')
+    if with_tensorboard:
+     tensorboard_logdir = out_dir + '/runs'
+
     if verbose:
         print("Starting training with parameters:")
         for k, v in locals().items():
             print(f"==> {k}: {v}")
             print()
 
-    model = CroppyTrainer(dropout=dropout, resnet_weights=mode_weights).to(device.value)
-    optimizer = Adam(model.parameters(), lr=learning_rate)
 
+    out_name = (
+        f"{model.architecture}_{model.dropout}dropout_{model.learning_rate}lr_{epochs}epochs_{model.precision}_{train_len}x{model.images_height}x{model.images_width}"
+    )
+    weights_file = out_dir + '/' + out_name + ".pth"
+    spec_file = out_dir + '/' + out_name + ".json"
+    if os.path.exists(weights_file):
+        raise ValueError(f"{weights_file} already exists.")
+    if os.path.exists(spec_file):
+        raise ValueError(f"{spec_file} already exists.")
     
+    if not os.path.exists(out_dir):
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+
     if with_tensorboard:
+        s_writer = SummaryWriter(
+            log_dir=tensorboard_logdir
+        )
         url = utils.launch_tensorboard(tensorboard_logdir)
         print(f"Tensorboard is listening at {url}")
-    
+
     if progress:
         epochs_iter = tqdm.trange(epochs, position=0)
     else:
         epochs_iter = range(epochs)
-        
+    
+    
+    # THE MODEL MUST BE MOVED TO cTHE RIGHT DEVICE BEFORE INITIALIZING THE OPTIMIZER
+    model = model.to(model.target_device.value)
+    optimizer = Adam(model.parameters(), lr=model.learning_rate)
+
     for epoch in epochs_iter:
         model.train()
-        
+
         if verbose:
             print(f"Starting epoch {epoch}.")
-        
+
         cumulative_train_loss = 0.0
 
         if progress:
             sub_bar = tqdm.tqdm(total=len(train_dataloader), leave=True, position=1)
         try:
             for images, labels in train_dataloader:
-                images, labels = images.to(device.value), labels.to(device.value)
-    
+                images, labels = images.to(model.target_device.value), labels.to(model.target_device.value)
+                
+                # the gpu has to handle transforms
+                with torch.no_grad():
+                    gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Precision.FP32, train=True).to('cuda')
+                    images, labels = gpu_transforms(images.to('cuda'), labels.to('cuda'))
+                new_h, new_w = images.shape[-2:]
+                labels = labels / torch.tensor([new_w, new_h], device='cuda')
+                labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 0.1)
+
                 optimizer.zero_grad()
                 preds = model(images)
-                loss = loss_function(preds, labels)
+                loss = model.loss_fn(preds, labels)
                 loss.backward()
                 optimizer.step()
                 cumulative_train_loss += loss.item()
-                
+
                 if progress:
                     sub_bar.update(1)
-                
+
             if progress:
                 sub_bar.close()
         except KeyboardInterrupt:
@@ -166,94 +214,70 @@ def train(
             break
 
         if validation_dataloader:
-            epoch_val_loss = validation_data(
-                model=model, loader=validation_dataloader, loss_fn=loss_function, epoch=epoch, device=device
-            )
-            if tensorboard_logdir:
-                s_writer.add_scalar(tag="Validation loss", scalar_value=epoch_val_loss, global_step=epoch + 1)
-        
-        epoch_train_loss = cumulative_train_loss / (epoch + 1)
+            try:
+                epoch_val_loss = validation_data(
+                    model=model,
+                    loader=validation_dataloader,
+                    loss_fn=model.loss_fn,
+                    epoch=epoch,
+                    device=model.target_device,
+                )
+            except KeyboardInterrupt:
+                print("Aborting due to user interruption...")
+                break
+
+        epoch_train_loss = cumulative_train_loss / len(train_dataloader)
         if verbose:
             if validation_dataloader is not None:
-                print(f"Epoch {epoch + 1}: train_loss={epoch_train_loss}, val_loss={epoch_val_loss}")
+                print(
+                    f"Epoch {epoch + 1}: train_loss={epoch_train_loss}, val_loss={epoch_val_loss}"
+                )
             else:
                 print(f"Epoch {epoch + 1}: train_loss={epoch_train_loss}")
+
+        if with_tensorboard:
+            board_payload = {'train': epoch_train_loss}
+            if validation_dataloader:
+                board_payload['validation'] = epoch_val_loss
+            s_writer.add_scalars(
+                main_tag="losses",
+                tag_scalar_dict=board_payload,
+                global_step=epoch + 1
+            )
         
-        if tensorboard_logdir:
-            s_writer.add_scalar(tag="Train loss", scalar_value=epoch_train_loss, global_step=epoch + 1)
-                
-
-    torch.save(model.state_dict(), out_file)
-
-
-if __name__ == "__main__":
-    weights = visionmodels.ResNet18_Weights.DEFAULT
-
-    t = weights.transforms()
-    normalize = transformsV2.Normalize(mean=t.mean, std=t.std)
-    # Data augmentation: since the model will deal with smartphone pictures (JPEG)
-    # spoiling it with perfect PNGs would harm performamce
-    # JPEG(quality=) will make sure the model is robust against
-    # less-than-perfect pictures
-    train_transform = transformsV2.Compose(
-        [
-            transformsV2.ToImage(),
-            # do NOT add this to preprocessing or the NN will overfit those specific low-quality artifacts and fail
-            # to recognize those coming from smartphones
-            transformsV2.JPEG(quality=[50, 100]),
-            transformsV2.ToDtype(dtype=torch.float32, scale=True),
-            normalize,
-        ]
-    )
-
-    resnet_train_ds = SmartDocDataset(
-        lmdb_path="./training_data/data_resnet_Float32.lmdb",
-        architecture=Architecture.RESNET,
-        precision=Precision.FP32,
-        image_transform=train_transform,
-        label_transform=None,
-        # limit=128
-    )
-
-    train_dataloader = DataLoader(
-        pin_memory=True,  # Using CUDA
-        dataset=resnet_train_ds,
-        shuffle=True,
-        batch_size=BATCH_SIZE,
-        num_workers=14,
-    )
-    
-    
-    resnet_val_ds = SmartDocDataset(
-        lmdb_path="./training_data/data_resnet_Float32.lmdb",
-        architecture=Architecture.RESNET,
-        precision=Precision.FP32,
-        image_transform=train_transform,
-        label_transform=None,
-        # limit=128
-    )
+        # Saving checkpoint
+        checkpoint_name = f"{model.architecture}_{model.dropout}dropout_{model.learning_rate}lr_{model.precision}_{train_len}x{model.images_height}x{model.images_width}_epoch_{epoch}_of_{epochs}"
+        checkpoint_file = out_dir + '/' + checkpoint_name + ".pth"
+        checkpoint = {
+            'total_epochs': epochs,
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'train_loss': epoch_train_loss,
+            'val_loss': epoch_val_loss
+        }
+        torch.save(checkpoint, checkpoint_file)
+        
+    if with_tensorboard:
+        s_writer.close()
 
 
-    val_dataloader = DataLoader(
-        pin_memory=True,  # Using CUDA
-        dataset=resnet_train_ds,
-        shuffle=True,
-        batch_size=BATCH_SIZE,
-        num_workers=14,
-    )
-
-    s_writer = SummaryWriter()
-    
-    train(
-        train_dataloader=train_dataloader,
-        validation_dataloader=val_dataloader,
-        mode_weights=weights,
-        device=Device.CUDA,
-        dropout=0.3,
-        loss_function=L1Loss(),
-        learning_rate=0.0001,
-        # epochs=100,
-        epochs=10,
-        verbose=True,
-        out_file="./model_fp32_batch64.pth",
-    )
+    torch.save(model.state_dict(), weights_file)
+    with open(spec_file, mode="w") as f:
+        f.write(
+            json.dumps(
+                {
+                    "name": out_name,
+                    "weights_file": weights_file,
+                    "architecture": f"{model.architecture}",
+                    "precision": f"{model.precision}",
+                    "loss_fn": model.loss_function(),
+                    "images_height": model.images_height,
+                    "images_width": model.images_width,
+                    "dropout": model.dropout,
+                    "learning_rate": model.learning_rate,
+                    "epochs": epochs,
+                    "train_length": train_len
+                }
+            )
+        )

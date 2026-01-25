@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs?ref=nixpkgs-unstable";
+    nixpkgs.url = "github:nixos/nixpkgs?ref=13868c071cc73a5e9f610c47d7bb08e5da64fdd5";
   };
   outputs =
     {
@@ -73,15 +73,37 @@
           ])
         else
           [ ];
+      fs = nixpkgs.lib.fileset;
     in
     {
-      packages = forAllSystems (pkgs: {
-        default = self.packages.${pkgs.stdenv.hostPlatform.system}.croppy;
-        croppy = pkgs.stdenv.mkDerivation {
-          name = "mimic";
-          propagatedBuildInputs = [ (pythonForPkgs pkgs) ];
-          dontUnpack = true;
-          installPhase = "install -Dm755 ${./croppy.py} $out/bin/croppy";
+      packages = forAllSystems (pkgs:
+      let
+        python = pythonForPkgs pkgs;
+      in  
+      {
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.croppy-trainer;
+        croppy-trainer = pkgs.stdenv.mkDerivation {
+          name = "croppy-trainer";
+          src = fs.toSource {
+            root = ./.;
+            fileset = fs.unions [ (fs.fileFilter (file: file.hasExt "py") ./.) ];
+          };
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          propagatedBuildInputs = [ python ];
+          # makeWrapper creates an executable in $out/bin/croppy-trainer
+          installPhase = ''
+            mkdir -p $out/bin $out/libexec/croppy-trainer
+            cp -r . $out/libexec/croppy-trainer
+            makeWrapper ${python}/bin/python $out/bin/croppy-trainer \
+              --add-flags "$out/libexec/croppy-trainer/main.py"
+          '';
+        };
+      });
+      apps = forAllSystems (pkgs: {
+        default = self.apps.${pkgs.stdenv.hostPlatform.system}.main;
+        main = {
+          type = "app";
+          program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.croppy-trainer}/bin/croppy-trainer";
         };
       });
       devShells = forAllSystems (pkgs: {

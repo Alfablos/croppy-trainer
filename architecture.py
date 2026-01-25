@@ -1,3 +1,4 @@
+import torch
 from typing import Callable, TypeVar
 import cv2
 from enum import Enum
@@ -6,7 +7,6 @@ from numpy.typing import NDArray
 
 from common import Precision
 from utils import assert_never, resize_img, coords_from_segmentation_mask
-
 
 
 class ProcessResult:
@@ -21,7 +21,7 @@ class Architecture(Enum):
 
     def __str__(self):
         return self.value
-    
+
     def get_transform_logic(
         self,
     ) -> Callable[[dict, int, int, Precision], ProcessResult]:
@@ -43,7 +43,7 @@ class Architecture(Enum):
             raise NotImplementedError(f"No precision type associated with {s}")
 
     @staticmethod
-    def _process_image(
+    def resize_image(
         path,
         h,
         w,
@@ -54,7 +54,7 @@ class Architecture(Enum):
         imdata = cv2.imread(path, cv2.IMREAD_COLOR if color else cv2.IMREAD_GRAYSCALE)
         if imdata is None:
             raise RuntimeError(f"Could not read image at {path}.")
-        if color:
+        if color: # BRG -> RB
             imdata = cv2.cvtColor(imdata, cv2.COLOR_BGR2RGB)
 
         if not resize:
@@ -66,11 +66,11 @@ class Architecture(Enum):
         return img_resized
 
     @staticmethod
-    def _transform_resnet(row, h: int, w: int, precision: Precision):
+    def _transform_resnet(row, h: int, w: int):
         """
         Resize the image and return the coordinates from the mask.
         """
-        img_resized = Architecture._process_image(
+        img_resized = Architecture.resize_image(
             row["image_path"], h, w, resize=True, color=True
         )
 
@@ -78,7 +78,11 @@ class Architecture(Enum):
             coords = [row[f"{axis}{i}"] for i in range(1, 5) for axis in ("x", "y")]
         elif "label_path" in row:  # compute cords from mask
             mask = cv2.imread(row["label_path"], cv2.IMREAD_GRAYSCALE)
-            coords: NDArray = coords_from_segmentation_mask(mask, precision)
+            coords = coords_from_segmentation_mask(mask)
+            if isinstance(coords, torch.Tensor):
+                coords: NDArray = coords.numpy()
+            else:
+                coords: NDArray = coords
         else:
             raise ValueError(
                 f"Coordinates for ResNet image {[row['image_path']]} were not provided and the data map has no label path to compute them"
@@ -87,17 +91,17 @@ class Architecture(Enum):
         return ProcessResult(img_resized, np.array(coords))
 
     @staticmethod
-    def _transform_unet(row, h: int, w: int, precision: Precision) -> ProcessResult:
+    def _transform_unet(row, h: int, w: int) -> ProcessResult:
         ipath = row["image_path"]
         mpath = row["label_path"]
 
-        img_resized = Architecture._process_image(
+        img_resized = Architecture.resize_image(
             row["image_path"], h, w, resize=True, color=True
         )
 
         mask = cv2.imread(row["label_path"], cv2.IMREAD_GRAYSCALE)
 
-        mask_resized = Architecture._process_image(
+        mask_resized = Architecture.resize_image(
             mpath, h, w, color=False, resize=True, interpolation=cv2.INTER_NEAREST
         )
 
