@@ -75,7 +75,7 @@ class SmartDocDataset(Dataset):
         with env.begin(write=False) as transaction:
             image: NDArray = pickle.loads(transaction.get(img_idx.encode("ascii")))# shape = (h, w, 3)
             label: NDArray = pickle.loads(transaction.get(lbl_idx.encode("ascii")))
-        h, w = image.shape
+        h, w, _ = image.shape
         transforms = get_transforms(None, Device.CPU, self.train)
         image_tvtensor = transforms(image) # shape is now (3, h, w)
         

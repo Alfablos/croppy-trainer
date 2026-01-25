@@ -19,15 +19,19 @@ def predict(
     base_weights=visionmodels.ResNet18_Weights.DEFAULT,
 ) -> torch.Tensor:
     model.eval()
-    
-    transforms = get_transforms(
-        weights=model.weights,
-        precision=model.precision,
-        train=False
-    )
 
-    inf_input: torch.Tensor = transforms(image)
+    t = model.weights.transforms()
+    transforms = transformsV2.Compose([
+        transformsV2.ToDtype(torch.float32, scale=True),
+        transformsV2.Normalize(mean=t.mean, std=t.std)
+    ])
+
+    img_tensor = torch.tensor(image).permute(2, 0, 1)
+    print(img_tensor.shape)
+    inf_input: torch.Tensor = transforms(img_tensor)
+
     input_as_batch = inf_input.unsqueeze(0).to(device.value) # add a dimension, the model expects a batch
+    print(input_as_batch.shape)
 
     return model(input_as_batch)
 

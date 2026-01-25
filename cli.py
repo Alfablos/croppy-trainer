@@ -117,7 +117,7 @@ def run_train(args):
         resnet_val_ds = SmartDocDataset(
             lmdb_path=args.validation_lmdb_path,
             architecture=Architecture.from_str(args.architecture),
-            train=False,
+            train=args.hard_validation,
             precision=Precision.from_str(args.precision),
             limit=args.limit
         )
@@ -133,7 +133,6 @@ def run_train(args):
     model = CroppyNet(
         weights=weights,
         architecture=Architecture.from_str(args.architecture),
-        precision=args.precision,
         loss_fn=L1Loss(),
         images_height=h,
         images_width=w,

@@ -143,6 +143,10 @@ if __name__ == "__main__":
     train_cmd.add_argument("--device", "--dev", "-d", required=False, type=str, default="cuda")
     train_cmd.add_argument("--dropout", required=False, type=float, default=0.3)
     train_cmd.add_argument(
+        "--hard-validation", "--hard-val", "--hard", "-H", action="store_true", required=False, default=False,
+        help="Perform the same transforms as the train set on the validation set, making it harder for the model to get a good score"
+    )
+    train_cmd.add_argument(
         "--verbose", "-v", action="store_true", required=False, default=False
     )
     train_cmd.add_argument(

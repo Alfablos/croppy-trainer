@@ -1,36 +1,23 @@
 import common
-from pandas.core.algorithms import mode
 from tensorboard.compat.tensorflow_stub.errors import UnimplementedError
 from pathlib import Path
 import torch.distributed.optim.post_localSGD_optimizer
-import architecture
-from typing import Optional
 import tqdm
-import typing
-from torch.multiprocessing import cpu_count
 from common import Precision, loss_from_str
 from architecture import Architecture
 from data import SmartDocDataset, get_transforms
-from enum import Enum
 from typing import Callable
-import os
-import json
 
-import cv2
-import pandas as pd
 import torch
 import torch.nn as nn
 from torch.nn import L1Loss, MSELoss
 from torch.nn import Sequential, Sigmoid, Linear, ReLU, Dropout
 from torch.optim import Adam, Optimizer
 import torchvision.models as visionmodels
-from torchvision.transforms import v2 as transformsV2
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from PIL import Image
 
 import utils
-import data
 from common import Device, DEFAULT_WEIGHTS
 
 
@@ -43,7 +30,6 @@ class CroppyNet(
         self,
         weights,
         architecture: Architecture,
-        precision: Precision,
         loss_fn: Callable,
         target_device: Device,
         images_height: int,
@@ -55,7 +41,6 @@ class CroppyNet(
 
         self.weights = weights
         self.architecture = architecture
-        self.precision = precision
         self.loss_fn = loss_fn
         self.target_device = target_device
         self.images_height: int = images_height
@@ -93,18 +78,20 @@ class CroppyNet(
             target_device=device,
             images_height=config['images_height'],
             images_width=config['images_width'],
-            precision=Precision.from_str(config['precision'])
         )
-        model.load_state_dict(torch.load(config['weights_file'], weights_only=True))
+        model.load_state_dict(config['model_state_dict'])
         return model.to(device.value) # adds a validation step
 
 
 @torch.no_grad()
-def validation_data(model, loader, loss_fn, epoch: int, device: Device) -> float:
+def validation_data(model, loader, loss_fn, epoch: int, device: Device, verbose: bool) -> float:
     model.eval()
     val_loss = 0.0
 
+    batch_n = 0
     for images, labels in loader:
+        if verbose:
+            print(f"Training: tarting batch {batch_n + 1} of {len(loader)}")
         images, labels = images.to(device.value), labels.to(device.value)
         
         gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=False).to('cuda')
@@ -124,7 +111,7 @@ def train(
     validation_dataloader: DataLoader | None,
     epochs: int,
     out_dir: str,
-    train_len, # only to append the information to filename and specs
+    train_len: int, # only to append the information to filename and specs
     with_tensorboard: bool = False,
     verbose=False,
     progress=False,
@@ -146,7 +133,7 @@ def train(
 
 
     run_name = (
-        f"{model.architecture}_{model.dropout}dropout_{model.learning_rate}lr_{epochs}epochs_{model.precision}_{train_len}x{model.images_height}x{model.images_width}"
+        f"{model.architecture}_{model.loss_function()}_{model.dropout}dropout_{model.learning_rate}lr_{epochs}epochs_{train_len}x{model.images_height}x{model.images_width}"
     )
     out_dir = Path(out_dir)
     if not out_dir.exists():
@@ -158,14 +145,13 @@ def train(
         if f.startswith(run_name) and f.endswith('.pth'):
             raise FileExistsError(f"Refusing to overwrite files of a previous run. {f} already exists.")
 
-
-
     if with_tensorboard:
         s_writer = SummaryWriter(
             log_dir=tensorboard_logdir
         )
         url = utils.launch_tensorboard(tensorboard_logdir)
-        print(f"Tensorboard is listening at {url}")
+        if verbose:
+            print(f"Tensorboard is listening at {url}")
 
     if progress:
         epochs_iter = tqdm.trange(epochs, position=0)
@@ -187,8 +173,11 @@ def train(
 
         if progress:
             sub_bar = tqdm.tqdm(total=len(train_dataloader), leave=True, position=1)
+        batch_n = 0
         try:
             for images, labels in train_dataloader:
+                if verbose:
+                    print(f"Training: tarting batch {batch_n + 1} of {len(train_dataloader)}")
                 images, labels = images.to(model.target_device.value), labels.to(model.target_device.value)
                 
                 # the gpu has to handle transforms
@@ -223,6 +212,7 @@ def train(
                     loss_fn=model.loss_fn,
                     epoch=epoch,
                     device=model.target_device,
+                    verbose=verbose
                 )
             except KeyboardInterrupt:
                 print("Aborting due to user interruption...")
@@ -251,8 +241,12 @@ def train(
         checkpoint_name = f"{run_name}_epoch_{epoch + 1}_of_{epochs}"
         checkpoint_file = str(out_dir) + '/' + checkpoint_name + ".pth"
         checkpoint = {
+            'architecture': f'{model.architecture}',
+            'images_height': model.images_height,
+            'images_width': model.images_width,
             'total_epochs': epochs,
             'epoch': epoch + 1,
+            'loss_fn': model.loss_function(),
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'train_loss': epoch_train_loss,
