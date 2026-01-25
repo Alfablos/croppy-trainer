@@ -155,13 +155,19 @@ def current_train_transforms(input_path: str, output_path: str):
     ## CPU ##: from data.py
     h, w = img_np.shape[:2]
     image = img_np.reshape(3, h, w)
+    print(f"tensor shape: {image.shape}")
     transforms = get_transforms(None, Device.CPU, train=True)
     image_tvtensor = transforms(image) # shape is now (3, h, w)
+    print(f"tensor shape after CPU transforms: {image.shape}")
 
     ## GPU ## from train.py
     gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=True).to('cuda')
-    image, _ = gpu_transforms(image_tvtensor.unsqueeze(0).to('cuda'))
+    prepared_image = image_tvtensor.unsqueeze(dim=0).to('cuda').permute(0, 2, 3, 1)
+    print(f"GPU: prepared image shape = {prepared_image.shape}")
+    image = gpu_transforms(prepared_image)
+    print(f"GPU: transformed image shape = {image.shape}")
     image = image.squeeze().to('cpu') # still shape (3, h, w)
+    print(f"GPU: squeezed image shape = {image.shape}")
 
     # Reverting normalization
     mean = torch.tensor(common.DEFAULT_WEIGHTS.transforms().mean).view(3, 1, 1) # this shape can be {operator} element-wise with (3, 1, 1) (R, G, B have different means, so we need 3 numbers in the first dimension!)
