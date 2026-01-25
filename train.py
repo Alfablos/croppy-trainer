@@ -1,3 +1,4 @@
+import common
 from pandas.core.algorithms import mode
 from tensorboard.compat.tensorflow_stub.errors import UnimplementedError
 from pathlib import Path
@@ -9,7 +10,7 @@ import typing
 from torch.multiprocessing import cpu_count
 from common import Precision, loss_from_str
 from architecture import Architecture
-from data import SmartDocDataset
+from data import SmartDocDataset, get_transforms
 from enum import Enum
 from typing import Callable
 import os
@@ -181,6 +182,14 @@ def train(
         try:
             for images, labels in train_dataloader:
                 images, labels = images.to(model.target_device.value), labels.to(model.target_device.value)
+                
+                # the gpu has to handle transforms
+                with torch.no_grad():
+                    gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Precision.FP32, train=True).to('cuda')
+                    images, labels = gpu_transforms(images.to('cuda'), labels.to('cuda'))
+                new_h, new_w = images.shape[-2:]
+                labels = labels / torch.tensor([new_w, new_h], device='cuda')
+                labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 0.1)
 
                 optimizer.zero_grad()
                 preds = model(images)

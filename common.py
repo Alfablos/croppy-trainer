@@ -6,7 +6,9 @@ from enum import Enum
 
 import numpy as np
 import torch
+import torchvision.models as visionmodels
 
+DEFAULT_WEIGHTS = visionmodels.ResNet18_Weights.DEFAULT
 
 def device_from_obj(x: torch.Tensor | np.ndarray):
     return x.device

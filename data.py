@@ -74,13 +74,14 @@ class SmartDocDataset(Dataset):
             label: NDArray = pickle.loads(transaction.get(lbl_idx.encode("ascii")))
 
         h, w = image.shape[:2]
+        image_tvtensor = transformsV2.JPEG(quality=[50, 100])(image.reshape(3, 1024, 768))
         image_tvtensor = transformsV2.ToImage()(image) # shape is now (3, h, w)
         
         # For labels we need shape (4, 2): [[x1, y1], [x2, y2], ...]
         label_reshaped = label.reshape(-1, 2)
         
         # Original coordinates: TODO NO normalization in coords_from_mask
-        original_coords = label_reshaped * torch.tensor([w, h], dtype=torch.float32) # [w, h] and not [h, w] because w => x, h = y
+        original_coords = torch.from_numpy(label_reshaped) * torch.tensor([w, h], dtype=torch.float32) # [w, h] and not [h, w] because w => x, h = y
         
         # create Keypoints for label
         label_tvtensor = torchvision.tv_tensors.KeyPoints(
@@ -89,23 +90,26 @@ class SmartDocDataset(Dataset):
             dtype=torch.float32
         )
         
-        # FINALLY!
-        if self.image_transform:
-            img_tv, label_tv = self.image_transform(image_tvtensor, label_tvtensor)
+        return image_tvtensor, label_tvtensor
         
-        # NOW normalization can happen!
-        # img_tv.shape = (C, H, W)
-        new_h, new_w = img_tv.shape[-2:]
+        # The cpu (16 threads) is not enough to preprocess
+        # # FINALLY!
+        # if self.image_transform:
+        #     img_tv, label_tv = self.image_transform(image_tvtensor, label_tvtensor)
         
-        new_coords_norm = label_tv / torch.tensor([new_w, new_h], dtype=torch.float32) # w = x, h = y
+        # # NOW normalization can happen!
+        # # img_tv.shape = (C, H, W)
+        # new_h, new_w = img_tv.shape[-2:]
         
-        new_coords_flat = new_coords_norm.flatten()
+        # new_coords_norm = label_tv / torch.tensor([new_w, new_h], dtype=torch.float32) # w = x, h = y
         
-        # transforms might have brought some corners outside the original size
-        final_label = torch.clamp(new_coords_flat, 0.0, 0.1)
+        # new_coords_flat = new_coords_norm.flatten()
+        
+        # # transforms might have brought some corners outside the original size
+        # final_label = torch.clamp(new_coords_flat, 0.0, 0.1)
 
 
-        return img_tv, final_label
+        # return img_tv, final_label
 
     def _get_or_init_env(self):
         # The worker is FORKED by pytorch and if env is open at the time of the fork
@@ -134,7 +138,7 @@ def get_transforms(weights, precision: Precision, train=False):
             ## geometric ##
             transformsV2.RandomPerspective(distortion_scale=0.5, p=0.5), # p=0.5 => half of the dataset is affected
             # White fill to differ less from the background
-            transformsV2.RandomRotation(degrees=range(0, 100), fill=255), # let's try but I'm not sure... see https://docs.pytorch.org/vision/main/auto_examples/transforms/plot_rotated_box_transforms.html
+            transformsV2.RandomRotation(degrees=(0, 100), fill=255), # let's try but I'm not sure... see https://docs.pytorch.org/vision/main/auto_examples/transforms/plot_rotated_box_transforms.html
             transformsV2.RandomAffine(degrees=(0, 100), fill=255),
             transformsV2.ElasticTransform(alpha=30.0),
             
@@ -142,7 +146,7 @@ def get_transforms(weights, precision: Precision, train=False):
             transformsV2.GaussianBlur(kernel_size=(5, 9), sigma=(0.1, 5)),
             transformsV2.GaussianNoise(),
             transformsV2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
-            transformsV2.JPEG(quality=[50, 100]),
+            # transformsV2.JPEG(quality=[50, 100]),  # CPU-bound
         ])
     
     pipeline.extend([
@@ -156,12 +160,13 @@ def get_transforms(weights, precision: Precision, train=False):
 
 def current_train_transforms(input_path: str, output_path: str):
     img_np = cv2.imread(input_path, cv2.IMREAD_COLOR_RGB)
+    img = transformsV2.ToImage()(img_np)
     transformation_pipeline = get_transforms(
         weights=DEFAULT_WEIGHTS,
         precision=Precision.FP32,
         train=True
     )
-    img_tensor = transformation_pipeline(img_np) # shape = (3, H, W)
+    img_tensor = transformation_pipeline(img) # shape = (3, H, W)
     
     # Reverting normalization
     mean = torch.tensor(DEFAULT_WEIGHTS.transforms().mean).view(3, 1, 1) # this shape can be {operator} element-wise with (3, 1, 1) (R, G, B have different means, so we need 3 numbers in the first dimension!)

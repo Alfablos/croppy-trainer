@@ -24,7 +24,7 @@ from crawler import crawl
 
 import torchvision.models as visionmodels
 from torchvision.transforms import v2 as transformsV2
-from train import DEFAULT_WEIGHTS
+from common import DEFAULT_WEIGHTS
 
 
 def version(module):
@@ -229,7 +229,7 @@ def run_predict(args):
     
     draw_box(actual_coords, image)
     
-    outpath = args.path + '_pred.jpg'
+    outpath = args.output
     cv2.imwrite(outpath, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
     
     print(f"Image saved to: {outpath}")

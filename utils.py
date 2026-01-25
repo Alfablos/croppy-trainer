@@ -119,27 +119,29 @@ def coords_from_segmentation_mask(
         tr = white_xy[torch.argmin(topright_to_bottomleft_diagonal)]
         br = white_xy[torch.argmax(topleft_to_bottoright_diagonal)]
         bl = white_xy[torch.argmax(topright_to_bottomleft_diagonal)]
+        return torch.tensor([tl, tr, br, bl], dtype=torch.uint8).flatten()
     else:
         tl = white_xy[np.argmin(topleft_to_bottoright_diagonal)]  # Smallest x + y
         tr = white_xy[np.argmin(topright_to_bottomleft_diagonal)]  # Smallest y - x
         br = white_xy[np.argmax(topleft_to_bottoright_diagonal)]  # Largest x + y
         bl = white_xy[np.argmax(topright_to_bottomleft_diagonal)]  # Largest y - x
+        return np.array([tl, tr, br, bl], dtype=np.uint8()).flatten()
 
-    # normalization
-    if gpu:
-        corners = torch.stack([tl, tr, br, bl])
-        w_h = torch.tensor([w, h], device=device.value, dtype=torch.float32)
-        return (corners / w_h).flatten()
-    else:
-        # w and h are, for example, 512 and 1024
-        # tl may be [691, 23]
-        # norm_tl = [x/w, y/h] = [ 691 / 512, 23 / 1024 ]
-        norm_tl = [tl[0] / w, tl[1] / h]
-        norm_tr = [tr[0] / w, tr[1] / h]
-        norm_br = [br[0] / w, br[1] / h]
-        norm_bl = [bl[0] / w, bl[1] / h]
+    # # normalization
+    # if gpu:
+    #     corners = torch.stack([tl, tr, br, bl])
+    #     w_h = torch.tensor([w, h], device=device.value, dtype=torch.float32)
+    #     return (corners / w_h).flatten()
+    # else:
+    #     # w and h are, for example, 512 and 1024
+    #     # tl may be [691, 23]
+    #     # norm_tl = [x/w, y/h] = [ 691 / 512, 23 / 1024 ]
+    #     norm_tl = [tl[0] / w, tl[1] / h]
+    #     norm_tr = [tr[0] / w, tr[1] / h]
+    #     norm_br = [br[0] / w, br[1] / h]
+    #     norm_bl = [bl[0] / w, bl[1] / h]
 
-        return np.array([norm_tl, norm_tr, norm_br, norm_bl]).flatten()
+    #     return np.array([norm_tl, norm_tr, norm_br, norm_bl]).flatten()
 
 
 def launch_tensorboard(log_dir: str, host: str = "0.0.0.0", port: int = 6006) -> str:

@@ -142,7 +142,7 @@ if __name__ == "__main__":
     train_cmd.add_argument("--precision", "-p", required=False, default="f32")
     train_cmd.add_argument("--limit", required=False, type=int)
     train_cmd.add_argument(
-        "--workers", "-w", required=False, type=int, default=cpu_count()
+        "--workers", "-w", required=False, type=int, default=int(cpu_count() / 2)
     )
     train_cmd.add_argument("--batch-size", "-b", required=False, type=int, default=32)
     train_cmd.add_argument("--device", "--dev", "-d", required=False, type=str, default="cuda")
@@ -165,6 +165,7 @@ if __name__ == "__main__":
     train_cmd.set_defaults(func=run_train)
 
     predict_cmd.add_argument("path")
+    predict_cmd.add_argument("--output", "-o", required=True, help="Where to save LMDB and CSV files")
     predict_cmd.add_argument("--config", "-c", required=True, help="The JSON model config file.")
     predict_cmd.add_argument("--device", "--dev", "-d", required=False, help="Device to run inference on", default='cuda' if torch.cuda.is_available() else 'cpu')
     predict_cmd.set_defaults(func=run_predict)
