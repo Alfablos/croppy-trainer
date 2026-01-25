@@ -98,7 +98,7 @@ def validation_data(model, loader, loss_fn, epoch: int, device: Device, verbose:
         images, labels = gpu_transforms(images.to('cuda'), labels.to('cuda'))
         new_h, new_w = images.shape[-2:]
         labels = labels / torch.tensor([new_w, new_h], device='cuda')
-        labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 0.1)
+        labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
 
         preds = model(images)
         val_loss += loss_fn(preds, labels).item()
