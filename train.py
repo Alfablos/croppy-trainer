@@ -107,7 +107,7 @@ def validation_data(model, loader, loss_fn, epoch: int, device: Device) -> float
     for images, labels in loader:
         images, labels = images.to(device.value), labels.to(device.value)
         
-        gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Precision.FP32, train=True).to('cuda')
+        gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=False).to('cuda')
         images, labels = gpu_transforms(images.to('cuda'), labels.to('cuda'))
         new_h, new_w = images.shape[-2:]
         labels = labels / torch.tensor([new_w, new_h], device='cuda')
@@ -193,7 +193,7 @@ def train(
                 
                 # the gpu has to handle transforms
                 with torch.no_grad():
-                    gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Precision.FP32, train=True).to('cuda')
+                    gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=True).to('cuda')
                     images, labels = gpu_transforms(images.to('cuda'), labels.to('cuda'))
                 new_h, new_w = images.shape[-2:]
                 labels = labels / torch.tensor([new_w, new_h], device='cuda')

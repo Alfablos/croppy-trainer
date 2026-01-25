@@ -96,17 +96,13 @@ def run_train(args):
         
     
 
-    train_transforms = get_transforms(
-        weights=weights, precision=Precision.from_str(args.precision), train=True
-    )
 
     resnet_train_ds = SmartDocDataset(
         lmdb_path=args.lmdb_path,
         architecture=Architecture.from_str(args.architecture),
+        train=True,
         precision=Precision.from_str(args.precision),
-        image_transforms=train_transforms,
-        label_transforms=None,
-        limit=args.limit,
+        limit=args.limit
     )
 
     train_dataloader = DataLoader(
@@ -118,16 +114,12 @@ def run_train(args):
     )
 
     if args.validation_lmdb_path:
-        val_transforms = get_transforms(
-            weights=weights, precision=Precision.from_str(args.precision), train=False
-        )
         resnet_val_ds = SmartDocDataset(
             lmdb_path=args.validation_lmdb_path,
             architecture=Architecture.from_str(args.architecture),
+            train=False,
             precision=Precision.from_str(args.precision),
-            image_transforms=val_transforms,
-            label_transforms=None,
-            limit=args.limit,
+            limit=args.limit
         )
 
         val_dataloader = DataLoader(

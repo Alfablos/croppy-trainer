@@ -2,12 +2,14 @@ from PIL.Image import new
 import torchvision.tv_tensors
 from numpy.typing import NDArray
 from cffi.cparser import lock
+
+import common
 from architecture import Architecture
 import csv
 import json
 import pickle
 import lmdb
-from typing import Any, Optional, List, Callable
+from typing import Any, Optional, List, Callable, Never
 import os
 import sys
 from pathlib import Path
@@ -24,8 +26,9 @@ from tqdm import tqdm
 
 import utils
 from common import Device, Precision, DEFAULT_WEIGHTS
-from utils import resize_img
+from utils import assert_never
 from crawler import crawl
+import config
 
 
 # Smartphone use a 0.75 (3:4) ratio
@@ -41,6 +44,7 @@ class SmartDocDataset(Dataset):
         lmdb_path: str,
         architecture: Architecture,
         precision: Precision,
+        train: bool,
         image_transforms: Optional[Callable] = None,
         label_transforms: Optional[Callable] = None,
         limit: Optional[int] = None,
@@ -50,9 +54,8 @@ class SmartDocDataset(Dataset):
         self.precision = precision
         self.lmdb_path = lmdb_path
         self.env = None  # opened on first __getitem__
-        self.image_transform = image_transforms
-        self.label_transform = label_transforms
         self.limit = limit
+        self.train = train
 
     def __len__(self):
         if self.limit is not None:
@@ -74,8 +77,9 @@ class SmartDocDataset(Dataset):
             label: NDArray = pickle.loads(transaction.get(lbl_idx.encode("ascii")))
 
         h, w = image.shape[:2]
-        image_tvtensor = transformsV2.JPEG(quality=[50, 100])(image.reshape(3, 1024, 768))
-        image_tvtensor = transformsV2.ToImage()(image) # shape is now (3, h, w)
+        image = image.reshape(3, h, w)
+        transforms = get_transforms(None, Device.CPU, self.train)
+        image_tvtensor = transforms(image) # shape is now (3, h, w)
         
         # For labels we need shape (4, 2): [[x1, y1], [x2, y2], ...]
         label_reshaped = label.reshape(-1, 2)
@@ -128,50 +132,41 @@ class SmartDocDataset(Dataset):
         return self.env
 
 
-def get_transforms(weights, precision: Precision, train=False):
-    
-    t = weights.transforms()
-    pipeline = []
-    
-    if train:
-        pipeline.extend([
-            ## geometric ##
-            transformsV2.RandomPerspective(distortion_scale=0.5, p=0.5), # p=0.5 => half of the dataset is affected
-            # White fill to differ less from the background
-            transformsV2.RandomRotation(degrees=(0, 100), fill=255), # let's try but I'm not sure... see https://docs.pytorch.org/vision/main/auto_examples/transforms/plot_rotated_box_transforms.html
-            transformsV2.RandomAffine(degrees=(0, 100), fill=255),
-            transformsV2.ElasticTransform(alpha=30.0),
-            
-            ## photometric ##
-            transformsV2.GaussianBlur(kernel_size=(5, 9), sigma=(0.1, 5)),
-            transformsV2.GaussianNoise(),
-            transformsV2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
-            # transformsV2.JPEG(quality=[50, 100]),  # CPU-bound
-        ])
-    
-    pipeline.extend([
-        # All the pipeline must be computed on UINT8, conversion at last
-        transformsV2.ToDtype(torch.float32, scale=True),
-        transformsV2.Normalize(mean=t.mean, std=t.std)
-    ])
-    
-    return transformsV2.Compose(pipeline)
+def get_transforms(weights, device: Device, train=False):
+
+    if device == Device.CPU:
+        if train:
+            return config.train_cpu_transforms
+        else:
+            return config.val_cpu_transforms
+    else:
+        if weights is None:
+            raise ValueError("Weights must be included in the call to `get_transforms` if GPU is involved.")
+        t = weights.transforms()
+        if train:
+            return config.train_gpu_transforms(t)
+        else:
+            return config.val_gpu_transforms(t)
+
 
 
 def current_train_transforms(input_path: str, output_path: str):
     img_np = cv2.imread(input_path, cv2.IMREAD_COLOR_RGB)
-    img = transformsV2.ToImage()(img_np)
-    transformation_pipeline = get_transforms(
-        weights=DEFAULT_WEIGHTS,
-        precision=Precision.FP32,
-        train=True
-    )
-    img_tensor = transformation_pipeline(img) # shape = (3, H, W)
-    
+    ## CPU ##: from data.py
+    h, w = img_np.shape[:2]
+    image = img_np.reshape(3, h, w)
+    transforms = get_transforms(None, Device.CPU, train=True)
+    image_tvtensor = transforms(image) # shape is now (3, h, w)
+
+    ## GPU ## from train.py
+    gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=True).to('cuda')
+    image, _ = gpu_transforms(image_tvtensor.unsqueeze(0).to('cuda'))
+    image = image.squeeze().to('cpu') # still shape (3, h, w)
+
     # Reverting normalization
-    mean = torch.tensor(DEFAULT_WEIGHTS.transforms().mean).view(3, 1, 1) # this shape can be {operator} element-wise with (3, 1, 1) (R, G, B have different means, so we need 3 numbers in the first dimension!)
-    std = torch.tensor(DEFAULT_WEIGHTS.transforms().std).view(3, 1, 1)
-    denormalized = img_tensor * std + mean
+    mean = torch.tensor(common.DEFAULT_WEIGHTS.transforms().mean).view(3, 1, 1) # this shape can be {operator} element-wise with (3, 1, 1) (R, G, B have different means, so we need 3 numbers in the first dimension!)
+    std = torch.tensor(common.DEFAULT_WEIGHTS.transforms().std).view(3, 1, 1)
+    denormalized = image * std + mean
     denormalized = denormalized.clip(0, 1) # data augmentation might have pushed values above 1 or below 0
     
     # Pytorch speaks (C, H, W), we want (H, W, C)
