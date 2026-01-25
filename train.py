@@ -30,12 +30,9 @@ from PIL import Image
 
 import utils
 import data
-from common import Device
+from common import Device, DEFAULT_WEIGHTS
 
 
-DEFAULT_WEIGHTS = visionmodels.ResNet18_Weights.DEFAULT
-BATCH_SIZE: int = 64
-# BATCH_SIZE: int = 16 took 7h 50min
 
 
 class CroppyNet(
@@ -232,6 +229,18 @@ def train(
                 tag_scalar_dict=board_payload,
                 global_step=epoch + 1
             )
+        
+        # Saving checkpoint
+        checkpoint = {
+            'total_epochs': epochs,
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'train_loss': epoch_train_loss,
+            'val_loss': epoch_val_loss
+        }
+        torch.save(checkpoint, weights_file)
+        
     if with_tensorboard:
         s_writer.close()
 
