@@ -21,14 +21,14 @@ import torchvision.models as visionmodels
 from tqdm import tqdm
 
 import utils
-from common import Device, Precision
+from common import Device, Precision, DEFAULT_WEIGHTS
 from utils import resize_img
 from crawler import crawl
 
+
 # Smartphone use a 0.75 (3:4) ratio
 # ResNet reduces the input by a factor of 32 (12/16)
-H = 512
-W = 384
+
 
 
 class SmartDocDataset(Dataset):
@@ -115,14 +115,66 @@ class SmartDocDataset(Dataset):
 
 
 def get_transforms(weights, precision: Precision, train=False):
+    
     t = weights.transforms()
-    transforms = [
-        transformsV2.ToImage(),
-        transformsV2.ToDtype(torch.float32, scale=True),
-        transformsV2.Normalize(mean=t.mean, std=t.std),
-    ]
-
+    pipeline = []
+    
     if train:
-        transforms.insert(1, transformsV2.JPEG(quality=[50, 100]))
+        pipeline.extend([
+            ## geometric ##
+            transformsV2.RandomPerspective(distortion_scale=0.5, p=0.5), # p=0.5 => half of the dataset is affected
+            # White fill to differ less from the background
+            transformsV2.RandomRotation(degrees=range(0, 100), fill=255), # let's try but I'm not sure... see https://docs.pytorch.org/vision/main/auto_examples/transforms/plot_rotated_box_transforms.html
+            transformsV2.RandomAffine(degrees=(0, 100), fill=255),
+            transformsV2.ElasticTransform(alpha=30.0),
+            
+            ## photometric ##
+            transformsV2.GaussianBlur(kernel_size=(5, 9), sigma=(0.1, 5)),
+            transformsV2.GaussianNoise(),
+            transformsV2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+            transformsV2.JPEG(quality=[50, 100]),
+        ])
+    
+    pipeline.extend([
+        # All the pipeline must be computed on UINT8, conversion at last
+        transformsV2.ToDtype(torch.float32, scale=True),
+        transformsV2.Normalize(mean=t.mean, std=t.std)
+    ])
+    
+    return transformsV2.Compose(pipeline)
 
-    return transformsV2.Compose(transforms)
+
+def current_train_transforms(input_path: str, output_path: str):
+    img_np = cv2.imread(input_path, cv2.IMREAD_COLOR_RGB)
+    transformation_pipeline = get_transforms(
+        weights=DEFAULT_WEIGHTS,
+        precision=Precision.FP32,
+        train=True
+    )
+    img_tensor = transformation_pipeline(img_np) # shape = (3, H, W)
+    
+    # Reverting normalization
+    mean = torch.tensor(DEFAULT_WEIGHTS.transforms().mean).view(3, 1, 1) # this shape can be {operator} element-wise with (3, 1, 1) (R, G, B have different means, so we need 3 numbers in the first dimension!)
+    std = torch.tensor(DEFAULT_WEIGHTS.transforms().std).view(3, 1, 1)
+    
+    denormalized = img_tensor * std + mean
+    
+    denormalized = denormalized.clip(0, 1) # data augmentation might have pushed values above 1 or below 0
+    
+    # Pytorch speaks (C, H, W), we want (H, W, C)
+    result_np = denormalized.permute(1, 2, 0).numpy()
+    
+    result_uint8 = (result_np * 255).astype(np.uint8) # retore values 0-255
+    
+    
+    result_bgr = cv2.cvtColor(result_uint8, cv2.COLOR_RGB2BGR)
+    
+    
+    cv2.imwrite(output_path, result_bgr)
+
+
+if __name__ == '__main__':
+    current_train_transforms(
+        input_path='/home/antonio/Downloads/2026-01-24-15-52-49-829.jpg',
+        output_path='./2026-01-24-15-52-49-829_transformed.jpg'
+    )
