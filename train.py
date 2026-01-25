@@ -106,6 +106,12 @@ def validation_data(model, loader, loss_fn, epoch: int, device: Device) -> float
 
     for images, labels in loader:
         images, labels = images.to(device.value), labels.to(device.value)
+        
+        gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Precision.FP32, train=True).to('cuda')
+        images, labels = gpu_transforms(images.to('cuda'), labels.to('cuda'))
+        new_h, new_w = images.shape[-2:]
+        labels = labels / torch.tensor([new_w, new_h], device='cuda')
+        labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 0.1)
 
         preds = model(images)
         val_loss += loss_fn(preds, labels).item()
@@ -240,6 +246,8 @@ def train(
             )
         
         # Saving checkpoint
+        checkpoint_name = f"{model.architecture}_{model.dropout}dropout_{model.learning_rate}lr_{model.precision}_{train_len}x{model.images_height}x{model.images_width}_epoch_{epoch}_of_{epochs}"
+        checkpoint_file = out_dir + '/' + checkpoint_name + ".pth"
         checkpoint = {
             'total_epochs': epochs,
             'epoch': epoch,
@@ -248,7 +256,7 @@ def train(
             'train_loss': epoch_train_loss,
             'val_loss': epoch_val_loss
         }
-        torch.save(checkpoint, weights_file)
+        torch.save(checkpoint, checkpoint_file)
         
     if with_tensorboard:
         s_writer.close()
