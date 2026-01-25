@@ -18,6 +18,13 @@ import tensorboard
 from common import Device, Precision
 
 
+def load_checkpoint(p: str, train: bool = False) -> dict:
+    checkpoint = torch.load(p)
+    return checkpoint
+    
+
+
+
 def assert_never(arg: Never) -> Never:
     raise AssertionError("Expected code to be unreachable")
 
