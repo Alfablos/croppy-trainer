@@ -47,19 +47,31 @@
         );
 
       dependencies = pkgs: with pkgs; [ ];
-
+      cudaLibraries = pkgs: with pkgs; [
+        cudaPackages.libcutensor
+        cudaPackages.libcublas
+        cudaPackages.libcusolver
+        cudaPackages.libcufft
+        cudaPackages.libcufile
+        cudaPackages.libcurand
+        cudaPackages.libcusparse
+        cudaPackages.cuda_nvrtc # libncrtc.so for cupy
+        cudaPackages.cudatoolkit
+        cudaPackages.cuda_cudart
+        cudaPackages.cuda_nvtx
+        cudaPackages.cuda_cupti
+        cudaPackages.cuda_nvrtc
+        cudaPackages.cudnn
+        # cudaPackages.cusparselt
+        cudaPackages.nccl
+        
+      ];
       mkLibraryPath =
         pkgs:
         with pkgs;
         lib.makeLibraryPath [
           stdenv.cc.cc # numpy (on which scenedetect depends) needs C libraries
-          cudaPackages.cuda_nvrtc # libncrtc.so for cupy
-          cudaPackages.cudatoolkit
-          cudaPackages.libcutensor
-          cudaPackages.libcublas
-          cudaPackages.libcusolver
-          cudaPackages.cuda_cudart
-        ];
+        ] ++ (cudaLibraries pkgs);
 
       gpuDependantPackages =
         pkgs:
@@ -89,7 +101,7 @@
             fileset = fs.unions [ (fs.fileFilter (file: file.hasExt "py") ./.) ];
           };
           nativeBuildInputs = [ pkgs.makeWrapper ];
-          propagatedBuildInputs = [ python ];
+          propagatedBuildInputs = [ python ] ++ (cudaLibraries pkgs);
           # makeWrapper creates an executable in $out/bin/croppy-trainer
           installPhase = ''
             mkdir -p $out/bin $out/libexec/croppy-trainer
