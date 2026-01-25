@@ -1,3 +1,4 @@
+import utils
 import cv2
 from numpy.typing import NDArray
 import lmdb
@@ -163,10 +164,9 @@ def run_train(args):
 
 
 def run_predict(args):
-    with open(args.config, 'r') as c:
-        config = json.loads(c.read())
-        device = args.device
-        model = CroppyNet.from_trained_config(config, Device.from_str(device))
+    config = utils.load_checkpoint(args.config, train=False)
+    print(config)
+    model = CroppyNet.from_trained_config(config, Device.from_str(args.device))
 
     # load image and convert to RGB from BGR
     image = cv2.imread(args.path, cv2.IMREAD_COLOR)

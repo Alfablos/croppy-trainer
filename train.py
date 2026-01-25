@@ -145,18 +145,20 @@ def train(
             print()
 
 
-    out_name = (
+    run_name = (
         f"{model.architecture}_{model.dropout}dropout_{model.learning_rate}lr_{epochs}epochs_{model.precision}_{train_len}x{model.images_height}x{model.images_width}"
     )
-    weights_file = out_dir + '/' + out_name + ".pth"
-    spec_file = out_dir + '/' + out_name + ".json"
-    if os.path.exists(weights_file):
-        raise ValueError(f"{weights_file} already exists.")
-    if os.path.exists(spec_file):
-        raise ValueError(f"{spec_file} already exists.")
-    
-    if not os.path.exists(out_dir):
-        Path(out_dir).mkdir(parents=True, exist_ok=True)
+    out_dir = Path(out_dir)
+    if not out_dir.exists():
+        out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir_files = next(out_dir.walk())[2]
+    for f in out_dir_files:
+        print(run_name)
+        print(f)
+        if f.startswith(run_name) and f.endswith('.pth'):
+            raise FileExistsError(f"Refusing to overwrite files of a previous run. {f} already exists.")
+
+
 
     if with_tensorboard:
         s_writer = SummaryWriter(
@@ -240,17 +242,17 @@ def train(
             if validation_dataloader:
                 board_payload['validation'] = epoch_val_loss
             s_writer.add_scalars(
-                main_tag="losses",
+                main_tag=f"losses @ {run_name}",
                 tag_scalar_dict=board_payload,
                 global_step=epoch + 1
             )
         
         # Saving checkpoint
-        checkpoint_name = f"{model.architecture}_{model.dropout}dropout_{model.learning_rate}lr_{model.precision}_{train_len}x{model.images_height}x{model.images_width}_epoch_{epoch}_of_{epochs}"
-        checkpoint_file = out_dir + '/' + checkpoint_name + ".pth"
+        checkpoint_name = f"{run_name}_epoch_{epoch + 1}_of_{epochs}"
+        checkpoint_file = str(out_dir) + '/' + checkpoint_name + ".pth"
         checkpoint = {
             'total_epochs': epochs,
-            'epoch': epoch,
+            'epoch': epoch + 1,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'train_loss': epoch_train_loss,
@@ -262,22 +264,3 @@ def train(
         s_writer.close()
 
 
-    torch.save(model.state_dict(), weights_file)
-    with open(spec_file, mode="w") as f:
-        f.write(
-            json.dumps(
-                {
-                    "name": out_name,
-                    "weights_file": weights_file,
-                    "architecture": f"{model.architecture}",
-                    "precision": f"{model.precision}",
-                    "loss_fn": model.loss_function(),
-                    "images_height": model.images_height,
-                    "images_width": model.images_width,
-                    "dropout": model.dropout,
-                    "learning_rate": model.learning_rate,
-                    "epochs": epochs,
-                    "train_length": train_len
-                }
-            )
-        )
