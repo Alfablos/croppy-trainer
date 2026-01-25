@@ -75,9 +75,7 @@ class SmartDocDataset(Dataset):
         with env.begin(write=False) as transaction:
             image: NDArray = pickle.loads(transaction.get(img_idx.encode("ascii")))# shape = (h, w, 3)
             label: NDArray = pickle.loads(transaction.get(lbl_idx.encode("ascii")))
-
-        h, w = image.shape[:2]
-        image = image.reshape(3, h, w)
+        h, w = image.shape
         transforms = get_transforms(None, Device.CPU, self.train)
         image_tvtensor = transforms(image) # shape is now (3, h, w)
         
@@ -150,19 +148,25 @@ def get_transforms(weights, device: Device, train=False):
 
 
 
-def current_train_transforms(input_path: str, output_path: str):
-    img_np = cv2.imread(input_path, cv2.IMREAD_COLOR_RGB)
+def current_train_transforms(input_path: str | tuple[str, int], output_path: str):
+    if isinstance(input_path, str):
+        img_np = cv2.imread(input_path, cv2.IMREAD_COLOR_BGR)
+        img_np = cv2.cvtColor(img_np, cv2.COLOR_BGR2RGB)
+    else:
+        key = f'i{input_path[1]}'.encode("ascii")
+        output_path = f'./{input_path[1]}_transformed.jpg'
+        env = lmdb.open(input_path[0], readonly=True, lock=False, readahead=False, meminit=False)
+        with env.begin(write=False) as t:
+            img_np: NDArray = pickle.loads(t.get(key))    # shape = (h, w, 3)
+
     ## CPU ##: from data.py
-    h, w = img_np.shape[:2]
-    image = img_np.reshape(3, h, w)
-    print(f"tensor shape: {image.shape}")
     transforms = get_transforms(None, Device.CPU, train=True)
-    image_tvtensor = transforms(image) # shape is now (3, h, w)
-    print(f"tensor shape after CPU transforms: {image.shape}")
+    image_tvtensor = transforms(img_np) # shape is now (3, h, w)
+    print(f"tensor shape after CPU transforms: {image_tvtensor.shape}")
 
     ## GPU ## from train.py
     gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=True).to('cuda')
-    prepared_image = image_tvtensor.unsqueeze(dim=0).to('cuda').permute(0, 2, 3, 1)
+    prepared_image = image_tvtensor.unsqueeze(dim=0).to('cuda')
     print(f"GPU: prepared image shape = {prepared_image.shape}")
     image = gpu_transforms(prepared_image)
     print(f"GPU: transformed image shape = {image.shape}")
@@ -185,6 +189,6 @@ def current_train_transforms(input_path: str, output_path: str):
 
 if __name__ == '__main__':
     current_train_transforms(
-        input_path='/home/antonio/Downloads/2026-01-24-15-52-49-829.jpg',
-        output_path='./2026-01-24-15-52-49-829_transformed.jpg'
+        ('./hires/training_data/data_resnet_training_22092x1024x768.lmdb', 60), # input_path='/home/antonio/Downloads/2026-01-24-15-52-49-829.jpg',
+        output_path=None
     )
