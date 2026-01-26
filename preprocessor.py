@@ -206,5 +206,5 @@ if __name__ == "__main__":
         strict=True,
         architecture=Architecture.RESNET,
         n_workers=13,
-        purpose=Purpose.TRAIN,
+        purpose=Purpose.TRAINING,
     )

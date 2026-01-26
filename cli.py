@@ -151,7 +151,8 @@ def run_train(args):
         hard_validation=args.hard_validation,
         verbose=args.verbose,
         progress=args.progress,
-        with_tensorboard=args.enable_tensorboard
+        with_tensorboard=args.enable_tensorboard,
+        debug=args.debug
     )
 
 

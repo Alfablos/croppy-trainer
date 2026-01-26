@@ -6,7 +6,7 @@ from tensorboard.compat.tensorflow_stub.errors import UnimplementedError
 from pathlib import Path
 import torch.distributed.optim.post_localSGD_optimizer
 import tqdm
-from common import Precision, loss_from_str
+from common import Precision, loss_from_str, Purpose
 from architecture import Architecture
 from data import SmartDocDataset, get_transforms
 from typing import Callable
@@ -70,9 +70,12 @@ class CroppyNet(
     def loss_function(self):
         if isinstance(self.loss_fn, L1Loss):
            return "L1Loss"
+        if isinstance(self.loss_fn, MSELoss):
+            return "MSELoss"
         else:
             raise UnimplementedError
-    
+
+    @staticmethod
     def from_trained_config(config: dict, device: Device):
         model: CroppyNet = CroppyNet(
             weights=DEFAULT_WEIGHTS,
@@ -87,24 +90,34 @@ class CroppyNet(
 
 
 @torch.no_grad()
-def validation_data(model, loader, loss_fn, device: Device, verbose: bool, hard: bool) -> float:
+def validation_data(model, loader, loss_fn, device: Device, verbose: bool, hard: bool, debug_fn: Callable | None) -> float:
     model.eval()
     val_loss = 0.0
     gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=hard).to('cuda')
     batch_n = 0
 
     for images, labels in loader:
+        batch_n += 1
         if verbose:
             print(f"Training: tarting batch {batch_n + 1} of {len(loader)}")
         images, labels = images.to(device.value), labels.to(device.value)
-        
-        images, labels = gpu_transforms(images.to('cuda'), labels.to('cuda'))
+        h, w = images.shape[-2:]
+        labels_wrapped = tv_tensors.KeyPoints(
+            labels.to('cuda'),
+            canvas_size=(h, w),
+            dtype=torch.float32
+        )
+
+        images, labels = gpu_transforms(images.to('cuda'), labels_wrapped)
         new_h, new_w = images.shape[-2:]
         labels = labels / torch.tensor([new_w, new_h], device='cuda')
         labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
 
         preds = model(images)
         val_loss += loss_fn(preds, labels).item()
+        if debug_fn:
+            debug_fn(purpose=Purpose.VALIDATION, i=images, l=labels, p=preds)
+
     return val_loss / len(loader)
 
 
@@ -116,9 +129,10 @@ def train(
     out_dir: str,
     train_len: int, # only to append the information to filename and specs
     hard_validation: bool,
+    debug: bool,
     with_tensorboard: bool = False,
     verbose=False,
-    progress=False,
+    progress=False
 ):
     if train_dataloader is None:
         raise ValueError("A `train_dataloader` must be specified!")
@@ -173,16 +187,29 @@ def train(
 
         cumulative_train_loss = 0.0
 
+        debug_fn = lambda purpose, i, l, p: utils.dump_training_batch(
+                images=i,
+                labels=l,
+                preds=p,
+                epoch=epoch,
+                batch_idx=batch_n,
+                purpose=purpose,
+                output_dir=f"{out_dir}/visual_debug_{purpose}"
+            ) if debug else None
+
         if progress:
             sub_bar = tqdm.tqdm(total=len(train_dataloader), leave=True, position=1)
         batch_n = 0
         try:
             for images, labels in train_dataloader:
+                batch_n += 1
                 if verbose:
                     print(f"Training: tarting batch {batch_n + 1} of {len(train_dataloader)}")
                 images, labels = images.to(model.target_device.value), labels.to(model.target_device.value)
                 h, w = images.shape[-2:]
 
+                # For some reason labels are reconverted to normal tensors
+                # they need to be KeyPoints or transforms will ignore them
                 labels_wrapped = tv_tensors.KeyPoints(
                     labels.to('cuda'),
                     canvas_size=(h, w),
@@ -191,7 +218,7 @@ def train(
                 # the gpu has to handle transforms
                 with torch.no_grad():
                     gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=True).to('cuda')
-                    images, labels = gpu_transforms(images.to('cuda'), labels.to('cuda'))
+                    images, labels = gpu_transforms(images.to('cuda'), labels_wrapped)
                 new_h, new_w = images.shape[-2:]
                 labels = labels / torch.tensor([new_w, new_h], device='cuda')
                 labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
@@ -206,16 +233,12 @@ def train(
                 if progress:
                     sub_bar.update(1)
 
-                # DEBUGGING
-                if batch_n == 0:
-                    utils.dump_training_batch(
-                        images=images,
-                        labels=labels,
-                        preds=preds,
-                        epoch=epoch,
-                        batch_idx=batch_n,
-                        output_dir=f"{out_dir}/visual_debug"
-                    )
+                debug_fn(
+                    i=images,
+                    l=labels,
+                    p=preds,
+                    purpose=Purpose.TRAINING
+                )
 
             if progress:
                 sub_bar.close()
@@ -231,7 +254,8 @@ def train(
                     loss_fn=model.loss_fn,
                     device=model.target_device,
                     verbose=verbose,
-                    hard=hard_validation
+                    hard=hard_validation,
+                    debug_fn=debug_fn
                 )
             except KeyboardInterrupt:
                 print("Aborting due to user interruption...")

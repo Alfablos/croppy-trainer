@@ -19,7 +19,7 @@ from numpy.typing import NDArray
 import torch
 import tensorboard
 
-from common import Device, Precision, DEFAULT_WEIGHTS
+from common import Device, Precision, DEFAULT_WEIGHTS, Purpose
 
 
 def load_checkpoint(p: str, train: bool = False) -> dict:
@@ -170,7 +170,8 @@ def dump_training_batch(
         preds: torch.Tensor,
         epoch: int,
         batch_idx: int,
-        output_dir: str = "./debug_dumps"
+        purpose: Purpose,
+        output_dir: str = "./debug_dumps",
 ):
     """
     Dumps a batch of images with Ground Truth (Green) and Predictions (Red) drawn on them.
@@ -230,7 +231,7 @@ def dump_training_batch(
         cv2.polylines(img_bgr, [pred_px], isClosed=True, color=(0, 0, 255), thickness=2)
 
         # D. Save
-        fname = f"train{i}_{batch_idx}_{epoch}.jpg"
+        fname = f"{purpose}{i}_{batch_idx}_{epoch}.jpg"
         cv2.imwrite(str(Path(output_dir) / fname), img_bgr)
 
 

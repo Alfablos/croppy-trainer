@@ -1,6 +1,6 @@
 from tensorboard.compat.tensorflow_stub.errors import UnimplementedError
 from markdown.test_tools import Kwargs
-from torch.nn import L1Loss
+from torch.nn import L1Loss, MSELoss
 from typing import Any
 from enum import Enum
 
@@ -15,7 +15,7 @@ def device_from_obj(x: torch.Tensor | np.ndarray):
 
 
 class Purpose(Enum):
-    TRAIN = "training"
+    TRAINING = "training"
     VALIDATION = "validation"
     TEST = "test"
 
@@ -25,8 +25,8 @@ class Purpose(Enum):
     @staticmethod
     def from_str(s: str):
         s = s.lower()
-        if s in ["train", "training"]:
-            return Purpose.TRAIN
+        if s in ["train", "training", "tr"]:
+            return Purpose.TRAINING
         elif s in ["validation", "val"]:
             return Purpose.VALIDATION
         elif s == "test":
@@ -117,7 +117,9 @@ class Precision(Enum):
 
 def loss_from_str(s: str, **loss_opts):
     s = s.lower()
-    if s == "l1loss":
+    if s in ["l1", "l1loss", "l1_loss"]:
         return L1Loss(loss_opts)
+    elif s in ["mse", "mseloss", "mse_loss"]:
+        return MSELoss(loss_opts)
     else:
         raise UnimplementedError

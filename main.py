@@ -150,6 +150,9 @@ if __name__ == "__main__":
         "--verbose", "-v", action="store_true", required=False, default=False
     )
     train_cmd.add_argument(
+        "--debug", "-D", action="store_true", required=False, default=False
+    )
+    train_cmd.add_argument(
         "--progress", action="store_true", required=False, default=False
     )
     train_cmd.add_argument(
