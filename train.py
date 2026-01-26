@@ -135,7 +135,7 @@ def train(
     out_dir: str,
     train_len: int,  # only to append the information to filename and specs
     hard_validation: bool,
-    debug: bool,
+    debug: int | None,
     with_tensorboard: bool = False,
     verbose=False,
     progress=False,
@@ -245,7 +245,8 @@ def train(
                 if progress:
                     sub_bar.update(1)
 
-                debug_fn(i=images, l=labels, p=preds, purpose=Purpose.TRAINING)
+                if debug and epoch % debug == 0:
+                        debug_fn(i=images, l=labels, p=preds, purpose=Purpose.TRAINING)
 
             if progress:
                 sub_bar.close()
@@ -262,7 +263,7 @@ def train(
                     device=model.target_device,
                     verbose=verbose,
                     hard=hard_validation,
-                    debug_fn=debug_fn,
+                    debug_fn=debug_fn if debug and epoch % debug == 0 else None,
                 )
             except KeyboardInterrupt:
                 print("Aborting due to user interruption...")

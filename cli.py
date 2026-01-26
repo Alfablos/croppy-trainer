@@ -153,7 +153,7 @@ def run_train(args):
         verbose=args.verbose,
         progress=args.progress,
         with_tensorboard=args.enable_tensorboard,
-        debug=args.debug,
+        debug=int(args.debug) if args.debug is not None else None,
     )
 
 
