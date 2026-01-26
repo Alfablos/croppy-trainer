@@ -84,10 +84,10 @@ class CroppyNet(
 
 
 @torch.no_grad()
-def validation_data(model, loader, loss_fn, epoch: int, device: Device, verbose: bool) -> float:
+def validation_data(model, loader, loss_fn, device: Device, verbose: bool, hard: bool) -> float:
     model.eval()
     val_loss = 0.0
-    gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=True).to('cuda')
+    gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=hard).to('cuda')
     batch_n = 0
 
     for images, labels in loader:
@@ -112,6 +112,7 @@ def train(
     epochs: int,
     out_dir: str,
     train_len: int, # only to append the information to filename and specs
+    hard_validation: bool,
     with_tensorboard: bool = False,
     verbose=False,
     progress=False,
@@ -212,7 +213,8 @@ def train(
                     loss_fn=model.loss_fn,
                     epoch=epoch,
                     device=model.target_device,
-                    verbose=verbose
+                    verbose=verbose,
+                    hard=hard_validation
                 )
             except KeyboardInterrupt:
                 print("Aborting due to user interruption...")

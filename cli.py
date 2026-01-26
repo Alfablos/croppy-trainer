@@ -148,9 +148,10 @@ def run_train(args):
         validation_dataloader=val_dataloader,
         epochs=args.epochs,
         train_len=args.limit if args.limit else len(resnet_train_ds),
+        hard_validation=args.hard_validation,
         verbose=args.verbose,
         progress=args.progress,
-        with_tensorboard=args.enable_tensorboard,
+        with_tensorboard=args.enable_tensorboard
     )
 
 
