@@ -19,7 +19,7 @@ from data import SmartDocDataset, get_transforms
 import torch
 from architecture import Architecture
 from preprocessor import precompute
-from common import Precision, Device, Purpose
+from common import Precision, Device, Purpose, loss_from_str
 from pathlib import Path
 from crawler import crawl
 
@@ -86,17 +86,17 @@ def run_precompute(args):
 
 
 def run_train(args):
+    print("Starting training job...")
     weights = DEFAULT_WEIGHTS
     
     # Retrieve height and width from the LMDB store
+    print(f"Opening LMDB store at {args.lmdb_path}")
     env = lmdb.open(args.lmdb_path, lock=False, readahead=False, meminit=False)
     with env.begin(write=False) as t:
         h = int.from_bytes(t.get("h".encode("ascii")), "big")
         w = int.from_bytes(t.get("w".encode("ascii"), "big"))
-        
-    
 
-
+    print(f"Setting up training dataset...")
     resnet_train_ds = SmartDocDataset(
         lmdb_path=args.lmdb_path,
         architecture=Architecture.from_str(args.architecture),
@@ -114,6 +114,7 @@ def run_train(args):
     )
 
     if args.validation_lmdb_path:
+        print(f"Setting up validation dataset...")
         resnet_val_ds = SmartDocDataset(
             lmdb_path=args.validation_lmdb_path,
             architecture=Architecture.from_str(args.architecture),
@@ -133,7 +134,7 @@ def run_train(args):
     model = CroppyNet(
         weights=weights,
         architecture=Architecture.from_str(args.architecture),
-        loss_fn=L1Loss(),
+        loss_fn=loss_from_str(args.loss_function),
         images_height=h,
         images_width=w,
         target_device=Device.from_str(args.device),

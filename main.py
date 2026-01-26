@@ -123,7 +123,7 @@ if __name__ == "__main__":
     train_cmd.add_argument("--validation-lmdb-path", "--valdb", required=False)
     train_cmd.add_argument("--architecture", "--arch", "-a", required=True)
     train_cmd.add_argument(
-        "--learning-rate", "--lrate", "--lr", required=True, type=float
+        "--learning-rate", "--lrate", "--lr", "-l", required=True, type=float
     )
     train_cmd.add_argument("--epochs", "-e", required=True, type=int)
     train_cmd.add_argument(
@@ -134,6 +134,7 @@ if __name__ == "__main__":
         required=True,
         help="Where to save the model weights and specs file",
     )
+    train_cmd.add_argument("--loss-function", "--loss-fn", "--loss", "-L", required=False, default="mse")
     train_cmd.add_argument("--precision", "-p", required=False, default="f32")
     train_cmd.add_argument("--limit", required=False, type=int)
     train_cmd.add_argument(

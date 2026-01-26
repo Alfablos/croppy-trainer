@@ -149,10 +149,10 @@ def train(
             print(f"==> {k}: {v}")
             print()
 
-
     run_name = (
         f"{model.architecture}_{model.loss_function()}_{model.dropout}dropout_{model.learning_rate}lr_{epochs}epochs_{train_len}x{model.images_height}x{model.images_width}"
     )
+    print(f"Starting run {run_name}")
     out_dir = Path(out_dir)
     if not out_dir.exists():
         out_dir.mkdir(parents=True, exist_ok=True)
