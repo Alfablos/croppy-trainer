@@ -5,7 +5,6 @@ from torchvision.transforms import v2 as transformsV2
 
 train_cpu_transforms = transformsV2.Compose([
     transformsV2.ToImage(),
-    transformsV2.GaussianNoise(),
     transformsV2.JPEG(quality=[50, 100]),  # CPU-bound, cannot run on GPU
     transformsV2.ColorJitter(brightness=0.5, contrast=0.8, saturation=0.4),
 ])
@@ -21,6 +20,7 @@ train_gpu_transforms = lambda t: transformsV2.Compose([
 
     # All the pipeline must be computed on UINT8, conversion at last
     transformsV2.ToDtype(torch.float32, scale=True),
+    transformsV2.GaussianNoise(), # needs float input or turns uint8 into floats!
     transformsV2.Normalize(mean=t.mean, std=t.std)
 ])
 

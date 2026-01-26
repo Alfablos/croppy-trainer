@@ -26,7 +26,8 @@ def predict(
         transformsV2.Normalize(mean=t.mean, std=t.std)
     ])
 
-    img_tensor = torch.tensor(image).permute(2, 0, 1)
+    img_tensor = transformsV2.ToImage()(image)
+    img_tensor = img_tensor.permute(2, 0, 1)
     print(img_tensor.shape)
     inf_input: torch.Tensor = transforms(img_tensor)
 

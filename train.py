@@ -87,14 +87,14 @@ class CroppyNet(
 def validation_data(model, loader, loss_fn, epoch: int, device: Device, verbose: bool) -> float:
     model.eval()
     val_loss = 0.0
-
+    gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=True).to('cuda')
     batch_n = 0
+
     for images, labels in loader:
         if verbose:
             print(f"Training: tarting batch {batch_n + 1} of {len(loader)}")
         images, labels = images.to(device.value), labels.to(device.value)
         
-        gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=False).to('cuda')
         images, labels = gpu_transforms(images.to('cuda'), labels.to('cuda'))
         new_h, new_w = images.shape[-2:]
         labels = labels / torch.tensor([new_w, new_h], device='cuda')
