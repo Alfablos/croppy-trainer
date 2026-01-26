@@ -10,6 +10,7 @@ import torchvision.models as visionmodels
 
 DEFAULT_WEIGHTS = visionmodels.ResNet18_Weights.DEFAULT
 
+
 def device_from_obj(x: torch.Tensor | np.ndarray):
     return x.device
 
@@ -114,6 +115,7 @@ class Precision(Enum):
             raise NotImplementedError(
                 f"No type associated with {self} for GPU. This is a bug!"
             )
+
 
 def loss_from_str(s: str, **loss_opts):
     s = s.lower()

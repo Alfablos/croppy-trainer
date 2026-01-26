@@ -18,7 +18,7 @@ if __name__ == "__main__":
     # python main.py pc -o ./ --height 512 --width 384 --compute-corners --strict --image-extension '_in.png' --label-extension '_gt.png' --architecture resnet --data-root ~/Downloads/extended_smartdoc_dataset/Extended\ Smartdoc\ dataset/train --purpose train -v
     # python main.py pc -o ./ --height 512 --width 384 --compute-corners --strict --image-extension '_in.png' --label-extension '_gt.png' --architecture resnet --data-root ~/Downloads/extended_smartdoc_dataset/Extended\ Smartdoc\ dataset/validation --purpose val -v
     # python main.py train --out-dir ./ --db ./train_data/data_resnet_train.lmdb --valdb ./validation_data/data_resnet_validation.lmdb -a resnet --lr 0.001 -e 10 --tensorboard --progress --device gpu
-    
+
     parser = argparse.ArgumentParser()
     parser.set_defaults(func=lambda _: parser.print_help())
     # build-ds --data-root /home/antonio/Downloads/extended_smartdoc_dataset/Extended\ Smartdoc\ dataset/train --iext '_in.png' --lext='_gt.png' -o ./dataset.csv -v -n -c
@@ -117,13 +117,17 @@ if __name__ == "__main__":
     )
     precompute_cmd.add_argument("--purpose", "-P", required=True, type=str)
     precompute_cmd.add_argument(
-        "--compact-store", "--compact-database", "--compact-db", "--compact", "-C",
+        "--compact-store",
+        "--compact-database",
+        "--compact-db",
+        "--compact",
+        "-C",
         required=False,
         action="store_true",
         default=False,
-        help="Avoids LMDB store sparsity to ensure compatibility with S3 storage and non sparse-tolerant storage backends." +
-             "WARNING: Requires an amount of additional storage space equal to the size of the store actual (non sparse) content." +
-            "Preprocessing duration might increase dramatically."
+        help="Avoids LMDB store sparsity to ensure compatibility with S3 storage and non sparse-tolerant storage backends."
+        + "WARNING: Requires an amount of additional storage space equal to the size of the store actual (non sparse) content."
+        + "Preprocessing duration might increase dramatically.",
     )
     precompute_cmd.set_defaults(func=run_precompute)
 
@@ -137,24 +141,33 @@ if __name__ == "__main__":
     train_cmd.add_argument("--epochs", "-e", required=True, type=int)
     train_cmd.add_argument(
         "--output-directory",
-        "--out-dir"
-        "--output",
+        "--out-dir--output",
         "-o",
         required=True,
         help="Where to save the model weights and specs file",
     )
-    train_cmd.add_argument("--loss-function", "--loss-fn", "--loss", "-L", required=False, default="mse")
+    train_cmd.add_argument(
+        "--loss-function", "--loss-fn", "--loss", "-L", required=False, default="mse"
+    )
     train_cmd.add_argument("--precision", "-p", required=False, default="f32")
     train_cmd.add_argument("--limit", required=False, type=int)
     train_cmd.add_argument(
         "--workers", "-w", required=False, type=int, default=int(cpu_count() / 2)
     )
     train_cmd.add_argument("--batch-size", "-b", required=False, type=int, default=32)
-    train_cmd.add_argument("--device", "--dev", "-d", required=False, type=str, default="cuda")
+    train_cmd.add_argument(
+        "--device", "--dev", "-d", required=False, type=str, default="cuda"
+    )
     train_cmd.add_argument("--dropout", required=False, type=float, default=0.3)
     train_cmd.add_argument(
-        "--hard-validation", "--hard-val", "--hard", "-H", action="store_true", required=False, default=True,
-        help="Perform the same transforms as the train set on the validation set, making it harder for the model to get a good score"
+        "--hard-validation",
+        "--hard-val",
+        "--hard",
+        "-H",
+        action="store_true",
+        required=False,
+        default=True,
+        help="Perform the same transforms as the train set on the validation set, making it harder for the model to get a good score",
     )
     train_cmd.add_argument(
         "--verbose", "-v", action="store_true", required=False, default=False
@@ -177,9 +190,20 @@ if __name__ == "__main__":
     train_cmd.set_defaults(func=run_train)
 
     predict_cmd.add_argument("path")
-    predict_cmd.add_argument("--output", "-o", required=True, help="Where to save LMDB and CSV files")
-    predict_cmd.add_argument("--config", "-c", required=True, help="The JSON model config file.")
-    predict_cmd.add_argument("--device", "--dev", "-d", required=False, help="Device to run inference on", default='cuda' if torch.cuda.is_available() else 'cpu')
+    predict_cmd.add_argument(
+        "--output", "-o", required=True, help="Where to save LMDB and CSV files"
+    )
+    predict_cmd.add_argument(
+        "--config", "-c", required=True, help="The JSON model config file."
+    )
+    predict_cmd.add_argument(
+        "--device",
+        "--dev",
+        "-d",
+        required=False,
+        help="Device to run inference on",
+        default="cuda" if torch.cuda.is_available() else "cpu",
+    )
     predict_cmd.set_defaults(func=run_predict)
 
     args = parser.parse_args()

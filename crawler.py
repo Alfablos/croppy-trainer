@@ -102,7 +102,7 @@ def crawl(
 
     if verbose:
         progress = tqdm(total=len(images), desc="Pairing examples and labels")
-        
+
     output_p = Path(output)
     if not output_p.parent.exists():
         output_p.parent.mkdir(parents=True)
@@ -114,14 +114,11 @@ def crawl(
             if compute_corners:
                 mask = cv2.imread(filename=str(label), flags=cv2.IMREAD_GRAYSCALE)
 
-
-                coords = utils.coords_from_segmentation_mask(
-                    mask, device=Device.CPU
-                )
+                coords = utils.coords_from_segmentation_mask(mask, device=Device.CPU)
                 fields = ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"]
                 for coord_name, value in zip(fields, coords):
                     row[coord_name] = value
-            
+
             rows.append(row)
 
             if verbose:

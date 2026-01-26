@@ -58,7 +58,7 @@ class Architecture(Enum):
         original_h, original_w = imdata.shape[:2]
         original_shape = (original_h, original_w)
 
-        if color: # BRG -> RB
+        if color:  # BRG -> RB
             imdata = cv2.cvtColor(imdata, cv2.COLOR_BGR2RGB)
 
         if not resize:
@@ -74,13 +74,15 @@ class Architecture(Enum):
         """
         Resize the image and return the coordinates from the mask.
         """
-        ipath = row['image_path']
+        ipath = row["image_path"]
         img_resized, original_shape = Architecture.resize_image(
             ipath, h, w, resize=True, color=True
         )
 
         if "x1" in row:  # have coords
-            coords = np.array([row[f"{axis}{i}"] for i in range(1, 5) for axis in ("x", "y")])
+            coords = np.array(
+                [row[f"{axis}{i}"] for i in range(1, 5) for axis in ("x", "y")]
+            )
         elif "label_path" in row:  # compute cords from mask
             mask = cv2.imread(row["label_path"], cv2.IMREAD_GRAYSCALE)
             coords = coords_from_segmentation_mask(mask)
@@ -98,7 +100,9 @@ class Architecture(Enum):
         x_scale = w / original_w
         y_scale = h / original_h
 
-        coords = coords.reshape(4, 2).astype(np.float64) # they were still uint32 and _scale is float
+        coords = coords.reshape(4, 2).astype(
+            np.float64
+        )  # they were still uint32 and _scale is float
         coords[:, 0] *= x_scale
         coords[:, 1] *= y_scale
         coords.flatten()

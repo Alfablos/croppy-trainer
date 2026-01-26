@@ -26,11 +26,10 @@ def compact_lmdb(env, dst_path: str):
     env.copy(dst_path, compact=True)
 
 
-
 def load_checkpoint(p: str, train: bool = False) -> dict:
     checkpoint = torch.load(p)
     return checkpoint
-    
+
 
 def assert_never(arg: Never) -> Never:
     raise AssertionError("Expected code to be unreachable")
@@ -87,8 +86,7 @@ def coords_from_segmentation_mask(
     if isinstance(mask, torch.Tensor) and not gpu:
         raise ValueError("if `gpu` is set to `False` you need to pass a Numpy ndarray.")
 
-
-    threshold = 127 
+    threshold = 127
 
     ## Compute pixel coordinates ##
     # not using mask > 0 (masks for the dataset only have black or white pixels) because if cv2 applies any filters
@@ -165,16 +163,15 @@ def launch_tensorboard(log_dir: str, host: str = "0.0.0.0", port: int = 6006) ->
     return url
 
 
-
 # AI generated
 def dump_training_batch(
-        images: torch.Tensor,
-        labels: torch.Tensor,
-        preds: torch.Tensor,
-        epoch: int,
-        batch_idx: int,
-        purpose: Purpose,
-        output_dir: str = "./debug_dumps",
+    images: torch.Tensor,
+    labels: torch.Tensor,
+    preds: torch.Tensor,
+    epoch: int,
+    batch_idx: int,
+    purpose: Purpose,
+    output_dir: str = "./debug_dumps",
 ):
     """
     Dumps a batch of images with Ground Truth (Green) and Predictions (Red) drawn on them.
@@ -239,7 +236,9 @@ def dump_training_batch(
 
 
 # AI generated
-def inspect_dataset(lmdb_path: str, output_dir: str, start_idx: int = 0, count: int = 10):
+def inspect_dataset(
+    lmdb_path: str, output_dir: str, start_idx: int = 0, count: int = 10
+):
     """
     Reads raw images and labels from LMDB and draws the stored coordinates.
     """
@@ -250,7 +249,9 @@ def inspect_dataset(lmdb_path: str, output_dir: str, start_idx: int = 0, count: 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Opening LMDB: {lmdb_path}")
-    env = lmdb.open(lmdb_path, readonly=True, lock=False, readahead=False, meminit=False)
+    env = lmdb.open(
+        lmdb_path, readonly=True, lock=False, readahead=False, meminit=False
+    )
 
     with env.begin(write=False) as txn:
         # Get dataset length just to be sure
@@ -299,22 +300,34 @@ def inspect_dataset(lmdb_path: str, output_dir: str, start_idx: int = 0, count: 
 
             # CHECK: Are they normalized?
             if np.max(coords) <= 1.5:
-                print(f"Warning: Index {i} looks normalized (Max val {np.max(coords)}). Denormalizing...")
+                print(
+                    f"Warning: Index {i} looks normalized (Max val {np.max(coords)}). Denormalizing..."
+                )
                 coords = coords * np.array([w, h])
 
             coords_px = coords.astype(np.int32)
 
             # 4. Draw
             # Draw contours (Green)
-            cv2.polylines(viz_image, [coords_px], isClosed=True, color=(0, 255, 0), thickness=2)
+            cv2.polylines(
+                viz_image, [coords_px], isClosed=True, color=(0, 255, 0), thickness=2
+            )
 
             # Draw individual points to check ordering (Red circles)
             # Top-Left should be first!
             for idx, point in enumerate(coords_px):
                 # Draw heavier circle for first point (TL)
                 radius = 8 if idx == 0 else 4
-                color = (0, 0, 255) if idx == 0 else (0, 255, 255) # Red for TL, Yellow for rest
-                cv2.circle(img=viz_image, center=tuple(point), radius=radius, color=color, thickness=3)
+                color = (
+                    (0, 0, 255) if idx == 0 else (0, 255, 255)
+                )  # Red for TL, Yellow for rest
+                cv2.circle(
+                    img=viz_image,
+                    center=tuple(point),
+                    radius=radius,
+                    color=color,
+                    thickness=3,
+                )
 
             # 5. Save
             out_path = output_dir / f"inspect_{i}.jpg"
@@ -324,13 +337,9 @@ def inspect_dataset(lmdb_path: str, output_dir: str, start_idx: int = 0, count: 
     env.close()
 
 
-
 if __name__ == "__main__":
     LMDB_PATH = "./hires/training_data/data_resnet_training_22092x1024x768.lmdb"
 
     inspect_dataset(
-        lmdb_path=LMDB_PATH,
-        output_dir="./hires_dump/train",
-        start_idx=0,
-        count=20
+        lmdb_path=LMDB_PATH, output_dir="./hires_dump/train", start_idx=0, count=20
     )

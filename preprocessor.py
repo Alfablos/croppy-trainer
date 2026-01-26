@@ -65,7 +65,7 @@ def precompute(
     compute_corners: bool = True,
     strict: bool = True,
     n_workers: int = int(cpu_count() / 2),
-    compact_store: bool = False
+    compact_store: bool = False,
 ):
     """
     Performs a resize and stores resized images in a LMDB Database at :path
@@ -80,11 +80,10 @@ def precompute(
     if output_dir in [".", "./"]:
         output_dir = f"{purpose}_data"
     else:
-        output_dir = output_dir.rstrip("/") +'/' + f"{purpose}_data"
+        output_dir = output_dir.rstrip("/") + "/" + f"{purpose}_data"
 
     rows = pd.read_csv(dataset_map_csv).to_dict("records")
     has_coords = "x1" in rows[0]
-
 
     output_dir: Path = Path(output_dir)
 
@@ -99,15 +98,21 @@ def precompute(
         data_length, target_h, target_w
     )
 
-
-    db_path_noext = str(output_dir) + f"/data_{architecture.value}_{str(purpose)}_{data_length}x{target_h}x{target_w}"
-    db_path = db_path_noext + '.lmdb'
-
+    db_path_noext = (
+        str(output_dir)
+        + f"/data_{architecture.value}_{str(purpose)}_{data_length}x{target_h}x{target_w}"
+    )
+    db_path = db_path_noext + ".lmdb"
 
     if compact_store:
-        compacted_db_path = db_path_noext + '_compacted.lmdb'
-        if os.path.exists(compacted_db_path) and not len(os.listdir(compacted_db_path)) == 0:
-            raise FileExistsError(f"Directory {compacted_db_path} exists and is not empty. Refusing to continue.")
+        compacted_db_path = db_path_noext + "_compacted.lmdb"
+        if (
+            os.path.exists(compacted_db_path)
+            and not len(os.listdir(compacted_db_path)) == 0
+        ):
+            raise FileExistsError(
+                f"Directory {compacted_db_path} exists and is not empty. Refusing to continue."
+            )
 
     if os.path.exists(db_path):
         if compact_store:
@@ -115,9 +120,13 @@ def precompute(
             print(f"Path {db_path} already exists, skipping store creation.")
             print(f"Compacting existing store {db_path} to {cp}.")
             if cp.exists():
-                raise FileExistsError(f"File {compacted_db_path} exists. Refusing to continue.")
+                raise FileExistsError(
+                    f"File {compacted_db_path} exists. Refusing to continue."
+                )
             cp.mkdir(parents=True)
-            env = lmdb.open(db_path, readonly=False, lock=True)  # prevent writing during the copy
+            env = lmdb.open(
+                db_path, readonly=False, lock=True
+            )  # prevent writing during the copy
             compact_lmdb(env, compacted_db_path)
             env.sync()
             env.close()
@@ -125,7 +134,10 @@ def precompute(
             exit(0)
         raise FileExistsError(db_path)
 
-    index_path = str(output_dir) + f"/index_{architecture.value}_{str(purpose)}_{data_length}x{target_h}x{target_w}.csv"
+    index_path = (
+        str(output_dir)
+        + f"/index_{architecture.value}_{str(purpose)}_{data_length}x{target_h}x{target_w}.csv"
+    )
     if os.path.exists(index_path):
         raise FileExistsError(index_path)
 

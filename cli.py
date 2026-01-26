@@ -28,7 +28,6 @@ from torchvision.transforms import v2 as transformsV2
 from common import DEFAULT_WEIGHTS
 
 
-
 def run_crawl(args):
     crawl(
         root=Path(args.data_root),
@@ -60,13 +59,13 @@ def run_precompute(args):
         )
         sleep(5)
         crawl(
-            root = Path(args.data_root),
-            output = data_map,
-            images_ext = args.image_extension,
-            labels_ext = args.label_extension,
-            compute_corners = args.compute_corners,
-            check_normalization = args.check_normalization,
-            verbose = args.verbose,
+            root=Path(args.data_root),
+            output=data_map,
+            images_ext=args.image_extension,
+            labels_ext=args.label_extension,
+            compute_corners=args.compute_corners,
+            check_normalization=args.check_normalization,
+            verbose=args.verbose,
         )
 
     precompute(
@@ -82,14 +81,14 @@ def run_precompute(args):
         strict=args.strict,
         n_workers=args.workers,
         commit_freq=args.commit_frequency,
-        compact_store=args.compact_store
+        compact_store=args.compact_store,
     )
 
 
 def run_train(args):
     print("Starting training job...")
     weights = DEFAULT_WEIGHTS
-    
+
     # Retrieve height and width from the LMDB store
     print(f"Opening LMDB store at {args.lmdb_path}")
     env = lmdb.open(args.lmdb_path, lock=False, readahead=False, meminit=False)
@@ -103,7 +102,7 @@ def run_train(args):
         architecture=Architecture.from_str(args.architecture),
         train=True,
         precision=Precision.from_str(args.precision),
-        limit=args.limit
+        limit=args.limit,
     )
 
     train_dataloader = DataLoader(
@@ -121,7 +120,7 @@ def run_train(args):
             architecture=Architecture.from_str(args.architecture),
             train=args.hard_validation,
             precision=Precision.from_str(args.precision),
-            limit=args.limit
+            limit=args.limit,
         )
 
         val_dataloader = DataLoader(
@@ -154,7 +153,7 @@ def run_train(args):
         verbose=args.verbose,
         progress=args.progress,
         with_tensorboard=args.enable_tensorboard,
-        debug=args.debug
+        debug=args.debug,
     )
 
 
@@ -166,25 +165,27 @@ def run_predict(args):
     # load image and convert to RGB from BGR
     image = cv2.imread(args.path, cv2.IMREAD_COLOR)
     image: NDArray = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    
+
     resized_image: NDArray = Architecture.resize_image(
-        args.path, h=model.images_height, w=model.images_width, color=True, resize=True, interpolation=cv2.INTER_AREA
+        args.path,
+        h=model.images_height,
+        w=model.images_width,
+        color=True,
+        resize=True,
+        interpolation=cv2.INTER_AREA,
     )
-    
+
     norm_coords = predict(
-        image=resized_image,
-        model=model,
-        device=Device.from_str(args.device)
+        image=resized_image, model=model, device=Device.from_str(args.device)
     )
     actual_coords = get_image_points(
-        image.shape, # NOT RESIZED!
-        norm_coords
+        image.shape,  # NOT RESIZED!
+        norm_coords,
     )
-    
+
     draw_box(actual_coords, image)
-    
+
     outpath = args.output
     cv2.imwrite(outpath, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-    
-    print(f"Image saved to: {outpath}")
 
+    print(f"Image saved to: {outpath}")
