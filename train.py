@@ -282,7 +282,7 @@ def train(
             if validation_dataloader:
                 board_payload["validation"] = epoch_val_loss
             s_writer.add_scalars(
-                main_tag=f"losses @ {run_name}",
+                main_tag=f"LOSSES_{run_name}",
                 tag_scalar_dict=board_payload,
                 global_step=epoch + 1,
             )
