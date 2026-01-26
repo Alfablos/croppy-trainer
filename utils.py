@@ -1,6 +1,10 @@
 from pathlib import Path
+
+import lmdb
 import os
 from sys import argv
+
+import pickle
 from pandas.tests.arrays.masked.test_arrow_compat import pa
 import time
 from enum import Enum
@@ -228,3 +232,101 @@ def dump_training_batch(
         # D. Save
         fname = f"train{i}_{batch_idx}_{epoch}.jpg"
         cv2.imwrite(str(Path(output_dir) / fname), img_bgr)
+
+
+# AI generated
+def inspect_dataset(lmdb_path: str, output_dir: str, start_idx: int = 0, count: int = 10):
+    """
+    Reads raw images and labels from LMDB and draws the stored coordinates.
+    """
+    if not os.path.exists(lmdb_path):
+        raise FileNotFoundError(f"LMDB path not found: {lmdb_path}")
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Opening LMDB: {lmdb_path}")
+    env = lmdb.open(lmdb_path, readonly=True, lock=False, readahead=False, meminit=False)
+
+    with env.begin(write=False) as txn:
+        # Get dataset length just to be sure
+        length_bytes = txn.get("__len__".encode("ascii"))
+        if length_bytes:
+            total_len = int.from_bytes(length_bytes, "big")
+            print(f"Dataset reports length: {total_len}")
+
+        for i in range(start_idx, start_idx + count):
+            img_key = f"i{i}".encode("ascii")
+            lbl_key = f"l{i}".encode("ascii")
+
+            img_bytes = txn.get(img_key)
+            lbl_bytes = txn.get(lbl_key)
+
+            if not img_bytes or not lbl_bytes:
+                print(f"Skipping index {i}: Data not found.")
+                continue
+
+            # 1. Load Raw Data
+            # Image is typically (H, W, 3) BGR/RGB depending on how you saved it
+            # Your crawler saves as RGB usually, but OpenCV needs BGR to save.
+            image = pickle.loads(img_bytes)
+
+            # Label should be raw coords (8,) or (4, 2)
+            label = pickle.loads(lbl_bytes)
+
+            # 2. Process Image for Drawing
+            # Ensure it's contiguous and uint8
+            if image.dtype != np.uint8:
+                image = (image * 255).astype(np.uint8)
+
+            # Convert RGB -> BGR for OpenCV saving (if stored as RGB)
+            # Assuming your preprocessor stored RGB (standard practice in PyTorch land)
+            viz_image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+            h, w, _ = viz_image.shape
+
+            # 3. Process Labels
+            # Reshape to (4, 2) points
+            coords = label.reshape(-1, 2)
+
+            # CAST TO INT: cv2.polylines requires integer coordinates
+            # This step will reveal if your data is Normalized (0.0-1.0) or Pixels (0-W)
+            # If data is normalized, these ints will all be 0 or 1!
+
+            # CHECK: Are they normalized?
+            if np.max(coords) <= 1.5:
+                print(f"Warning: Index {i} looks normalized (Max val {np.max(coords)}). Denormalizing...")
+                coords = coords * np.array([w, h])
+
+            coords_px = coords.astype(np.int32)
+
+            # 4. Draw
+            # Draw contours (Green)
+            cv2.polylines(viz_image, [coords_px], isClosed=True, color=(0, 255, 0), thickness=2)
+
+            # Draw individual points to check ordering (Red circles)
+            # Top-Left should be first!
+            for idx, point in enumerate(coords_px):
+                # Draw heavier circle for first point (TL)
+                radius = 8 if idx == 0 else 4
+                color = (0, 0, 255) if idx == 0 else (0, 255, 255) # Red for TL, Yellow for rest
+                cv2.circle(img=viz_image, center=tuple(point), radius=radius, color=color, thickness=3)
+
+            # 5. Save
+            out_path = output_dir / f"inspect_{i}.jpg"
+            cv2.imwrite(str(out_path), viz_image)
+            print(f"Saved {out_path} | Label range: {label.min()} - {label.max()}")
+
+    env.close()
+
+
+
+if __name__ == "__main__":
+    LMDB_PATH = "./hires/training_data/data_resnet_training_22092x1024x768.lmdb"
+
+    inspect_dataset(
+        lmdb_path=LMDB_PATH,
+        output_dir="./hires_dump/train",
+        start_idx=0,
+        count=20
+    )

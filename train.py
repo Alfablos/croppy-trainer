@@ -1,3 +1,6 @@
+import torchvision.tv_tensors
+from torchvision import tv_tensors
+
 import common
 from tensorboard.compat.tensorflow_stub.errors import UnimplementedError
 from pathlib import Path
@@ -178,7 +181,13 @@ def train(
                 if verbose:
                     print(f"Training: tarting batch {batch_n + 1} of {len(train_dataloader)}")
                 images, labels = images.to(model.target_device.value), labels.to(model.target_device.value)
-                
+                h, w = images.shape[-2:]
+
+                labels_wrapped = tv_tensors.KeyPoints(
+                    labels.to('cuda'),
+                    canvas_size=(h, w),
+                    dtype=torch.float32
+                )
                 # the gpu has to handle transforms
                 with torch.no_grad():
                     gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=True).to('cuda')
