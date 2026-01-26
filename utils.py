@@ -22,12 +22,15 @@ import tensorboard
 from common import Device, Precision, DEFAULT_WEIGHTS, Purpose
 
 
+def compact_lmdb(env, dst_path: str):
+    env.copy(dst_path, compact=True)
+
+
+
 def load_checkpoint(p: str, train: bool = False) -> dict:
     checkpoint = torch.load(p)
     return checkpoint
     
-
-
 
 def assert_never(arg: Never) -> Never:
     raise AssertionError("Expected code to be unreachable")

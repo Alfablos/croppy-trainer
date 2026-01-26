@@ -66,12 +66,10 @@
         cudaPackages.nccl
         
       ];
-      mkLibraryPath =
-        pkgs:
-        with pkgs;
-        lib.makeLibraryPath [
-          stdenv.cc.cc # numpy (on which scenedetect depends) needs C libraries
-        ] ++ (cudaLibraries pkgs);
+
+      allLibrariesInPath = pkgs: with pkgs; [
+        stdenv.cc.cc
+      ] ++ (cudaLibraries pkgs);
 
       gpuDependantPackages =
         pkgs:
@@ -101,7 +99,9 @@
             fileset = fs.unions [ (fs.fileFilter (file: file.hasExt "py") ./.) ];
           };
           nativeBuildInputs = [ pkgs.makeWrapper ];
-          propagatedBuildInputs = [ python ] ++ (cudaLibraries pkgs);
+          propagatedBuildInputs = [
+            python
+          ] ++ (cudaLibraries pkgs);
           # makeWrapper creates an executable in $out/bin/croppy-trainer
           installPhase = ''
             mkdir -p $out/bin $out/libexec/croppy-trainer
@@ -125,7 +125,7 @@
             cudaSupport = pkgs.config.cudaSupport;
           in
           pkgs.mkShell {
-            inputsFrom = [ ];
+            inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.croppy-trainer ];
             packages = [
               python
               pkgs.uv
@@ -137,7 +137,7 @@
               ${
                 if cudaSupport then
                   ''
-                    export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${mkLibraryPath pkgs}:/run/opengl-driver/lib:/run/opengl-driver-32/lib"
+                    export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${pkgs.lib.makeLibraryPath (allLibrariesInPath pkgs)}:/run/opengl-driver/lib:/run/opengl-driver-32/lib"
                     export XLA_FLAGS="--xla_gpu_cuda_data_dir=${pkgs.cudaPackages.cudatoolkit}"
                     export CUDA_PATH=${pkgs.cudaPackages.cudatoolkit}
                     export EXTRA_CCFLAGS="-I/usr/include"

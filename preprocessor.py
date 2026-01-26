@@ -1,3 +1,4 @@
+import shutil
 from time import sleep
 from numpy.typing import NDArray
 from torch.multiprocessing import cpu_count
@@ -21,7 +22,7 @@ import pandas as pd
 
 
 from common import Precision
-from utils import resize_img, assert_never, coords_from_segmentation_mask
+from utils import resize_img, assert_never, coords_from_segmentation_mask, compact_lmdb
 from architecture import Architecture, ProcessResult
 
 
@@ -64,6 +65,7 @@ def precompute(
     compute_corners: bool = True,
     strict: bool = True,
     n_workers: int = int(cpu_count() / 2),
+    compact_store: bool = False
 ):
     """
     Performs a resize and stores resized images in a LMDB Database at :path
@@ -97,14 +99,37 @@ def precompute(
         data_length, target_h, target_w
     )
 
-    print(f"Allocating {total_map_size / (1024**3):.2f} GB for the lmdb store.")
 
-    db_path = str(output_dir) + f"/data_{architecture.value}_{str(purpose)}_{data_length}x{target_h}x{target_w}.lmdb"
+    db_path_noext = str(output_dir) + f"/data_{architecture.value}_{str(purpose)}_{data_length}x{target_h}x{target_w}"
+    db_path = db_path_noext + '.lmdb'
+
+
+    if compact_store:
+        compacted_db_path = db_path_noext + '_compacted.lmdb'
+        if os.path.exists(compacted_db_path) and not len(os.listdir(compacted_db_path)) == 0:
+            raise FileExistsError(f"Directory {compacted_db_path} exists and is not empty. Refusing to continue.")
+
     if os.path.exists(db_path):
+        if compact_store:
+            cp = Path(compacted_db_path)
+            print(f"Path {db_path} already exists, skipping store creation.")
+            print(f"Compacting existing store {db_path} to {cp}.")
+            if cp.exists():
+                raise FileExistsError(f"File {compacted_db_path} exists. Refusing to continue.")
+            cp.mkdir(parents=True)
+            env = lmdb.open(db_path, readonly=False, lock=True)  # prevent writing during the copy
+            compact_lmdb(env, compacted_db_path)
+            env.sync()
+            env.close()
+            shutil.rmtree(db_path)
+            exit(0)
         raise FileExistsError(db_path)
+
     index_path = str(output_dir) + f"/index_{architecture.value}_{str(purpose)}_{data_length}x{target_h}x{target_w}.csv"
     if os.path.exists(index_path):
         raise FileExistsError(index_path)
+
+    print(f"Allocating {total_map_size / (1024**3):.2f} GB for the lmdb store.")
 
     if dry_run:
         return
@@ -112,7 +137,7 @@ def precompute(
         print("Waiting 5 seconds before starting, press Ctrl + c to interrupt...")
         sleep(5)
 
-    env = lmdb.open(db_path, total_map_size)
+    env = lmdb.open(db_path, total_map_size, readonly=False, lock=True)
 
     # Write each example in the db after converting it to RGB
     print(f"Creating LMDB store at {db_path}.")
@@ -189,7 +214,15 @@ def precompute(
             transaction.put("w".encode("ascii"), target_w.to_bytes(64, "big"))
             transaction.commit()
             env.sync()
+            if compact_store:
+                # Avoiding opening a new env
+                print(f"Compacting LMDB store {db_path} to {compacted_db_path}")
+                Path(compacted_db_path).mkdir(parents=True)
+                compact_lmdb(env=env, dst_path=compacted_db_path)
+                env.sync()
             env.close()
+            if compact_store:
+                shutil.rmtree(db_path)
 
     print("Precomputation complete.")
 

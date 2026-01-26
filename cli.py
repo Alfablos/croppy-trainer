@@ -82,6 +82,7 @@ def run_precompute(args):
         strict=args.strict,
         n_workers=args.workers,
         commit_freq=args.commit_frequency,
+        compact_store=args.compact_store
     )
 
 

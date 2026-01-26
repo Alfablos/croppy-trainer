@@ -116,6 +116,15 @@ if __name__ == "__main__":
         default=cpu_count(),
     )
     precompute_cmd.add_argument("--purpose", "-P", required=True, type=str)
+    precompute_cmd.add_argument(
+        "--compact-store", "--compact-database", "--compact-db", "--compact", "-C",
+        required=False,
+        action="store_true",
+        default=False,
+        help="Avoids LMDB store sparsity to ensure compatibility with S3 storage and non sparse-tolerant storage backends." +
+             "WARNING: Requires an amount of additional storage space equal to the size of the store actual (non sparse) content." +
+            "Preprocessing duration might increase dramatically."
+    )
     precompute_cmd.set_defaults(func=run_precompute)
 
     ## Train ##
@@ -144,7 +153,7 @@ if __name__ == "__main__":
     train_cmd.add_argument("--device", "--dev", "-d", required=False, type=str, default="cuda")
     train_cmd.add_argument("--dropout", required=False, type=float, default=0.3)
     train_cmd.add_argument(
-        "--hard-validation", "--hard-val", "--hard", "-H", action="store_true", required=False, default=False,
+        "--hard-validation", "--hard-val", "--hard", "-H", action="store_true", required=False, default=True,
         help="Perform the same transforms as the train set on the validation set, making it harder for the model to get a good score"
     )
     train_cmd.add_argument(
