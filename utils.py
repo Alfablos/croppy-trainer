@@ -127,13 +127,13 @@ def coords_from_segmentation_mask(
         tr = white_xy[torch.argmin(topright_to_bottomleft_diagonal)]
         br = white_xy[torch.argmax(topleft_to_bottoright_diagonal)]
         bl = white_xy[torch.argmax(topright_to_bottomleft_diagonal)]
-        return torch.tensor([tl, tr, br, bl], dtype=torch.uint32).flatten()
+        return torch.tensor([tl, tr, br, bl], dtype=torch.float32).flatten()
     else:
         tl = white_xy[np.argmin(topleft_to_bottoright_diagonal)]  # Smallest x + y
         tr = white_xy[np.argmin(topright_to_bottomleft_diagonal)]  # Smallest y - x
         br = white_xy[np.argmax(topleft_to_bottoright_diagonal)]  # Largest x + y
         bl = white_xy[np.argmax(topright_to_bottomleft_diagonal)]  # Largest y - x
-        return np.array([tl, tr, br, bl], dtype=np.uint32()).flatten()
+        return np.array([tl, tr, br, bl], dtype=np.float32()).flatten()
 
     # # normalization
     # if gpu:
