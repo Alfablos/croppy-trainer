@@ -6,7 +6,6 @@ from torchvision.transforms import v2 as transformsV2
 train_cpu_transforms = transformsV2.Compose([
     transformsV2.ToImage(),
     transformsV2.JPEG(quality=[50, 100]),  # CPU-bound, cannot run on GPU
-    transformsV2.ColorJitter(brightness=0.5, contrast=0.8, saturation=0.4),
 ])
 
 val_cpu_transforms = transformsV2.Compose([
@@ -14,6 +13,7 @@ val_cpu_transforms = transformsV2.Compose([
 ])
 
 train_gpu_transforms = lambda t: transformsV2.Compose([
+    transformsV2.ColorJitter(brightness=0.5, contrast=0.8, saturation=0.4),
     transformsV2.GaussianBlur(kernel_size=(7, 13), sigma=(1.0, 6)),
     transformsV2.ElasticTransform(alpha=40.0),
     transformsV2.RandomPerspective(distortion_scale=0.5, p=0.7), # p=0.5 => half of the dataset is affected
