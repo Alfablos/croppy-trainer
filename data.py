@@ -69,8 +69,6 @@ class SmartDocDataset(Dataset):
         img_idx = f"i{i}"
         lbl_idx = f"l{i}"
 
-        # Flow: 1. retrieve (cache or db); 2. transform (optional); 3. to tensor
-
         env = self._get_or_init_env()
         with env.begin(write=False) as transaction:
             image: NDArray = pickle.loads(transaction.get(img_idx.encode("ascii")))# shape = (h, w, 3)
@@ -82,8 +80,8 @@ class SmartDocDataset(Dataset):
         # For labels we need shape (4, 2): [[x1, y1], [x2, y2], ...]
         label_reshaped = label.reshape(-1, 2)
         
-        # Original coordinates: TODO NO normalization in coords_from_mask
-        original_coords = torch.from_numpy(label_reshaped) * torch.tensor([w, h], dtype=torch.float32) # [w, h] and not [h, w] because w => x, h = y
+        # Original coordinates: they're not normalized by the image size. More straightforward
+        original_coords = torch.from_numpy(label_reshaped).to(dtype=torch.float32)
         
         # create Keypoints for label
         label_tvtensor = torchvision.tv_tensors.KeyPoints(
@@ -91,27 +89,9 @@ class SmartDocDataset(Dataset):
             canvas_size=(h, w),
             dtype=torch.float32
         )
-        
         return image_tvtensor, label_tvtensor
-        
-        # The cpu (16 threads) is not enough to preprocess
-        # # FINALLY!
-        # if self.image_transform:
-        #     img_tv, label_tv = self.image_transform(image_tvtensor, label_tvtensor)
-        
-        # # NOW normalization can happen!
-        # # img_tv.shape = (C, H, W)
-        # new_h, new_w = img_tv.shape[-2:]
-        
-        # new_coords_norm = label_tv / torch.tensor([new_w, new_h], dtype=torch.float32) # w = x, h = y
-        
-        # new_coords_flat = new_coords_norm.flatten()
-        
-        # # transforms might have brought some corners outside the original size
-        # final_label = torch.clamp(new_coords_flat, 0.0, 0.1)
 
 
-        # return img_tv, final_label
 
     def _get_or_init_env(self):
         # The worker is FORKED by pytorch and if env is open at the time of the fork

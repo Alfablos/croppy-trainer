@@ -116,7 +116,7 @@ class Architecture(Enum):
         )  # 1.2 is a safety margin
 
         if self == Architecture.RESNET:
-            coord_size = 4 * 8  # (8 floats, 32Bit each)
+            coord_size = 4 * 8  # (8 uint32, 32Bit each)
             total_coord_size = int(data_length * coord_size * 1.2)
             total_map_size += total_coord_size
             return total_map_size

@@ -109,7 +109,7 @@ def precompute(
     if dry_run:
         return
     else:
-        print("Waiting 5 seconds before starting, presso Ctrl + c to interrupt...")
+        print("Waiting 5 seconds before starting, press Ctrl + c to interrupt...")
         sleep(5)
 
     env = lmdb.open(db_path, total_map_size)

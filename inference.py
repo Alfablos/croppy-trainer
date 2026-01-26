@@ -27,7 +27,6 @@ def predict(
     ])
 
     img_tensor = transformsV2.ToImage()(image)
-    img_tensor = img_tensor.permute(2, 0, 1)
     print(img_tensor.shape)
     inf_input: torch.Tensor = transforms(img_tensor)
 

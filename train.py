@@ -141,8 +141,6 @@ def train(
         out_dir.mkdir(parents=True, exist_ok=True)
     out_dir_files = next(out_dir.walk())[2]
     for f in out_dir_files:
-        print(run_name)
-        print(f)
         if f.startswith(run_name) and f.endswith('.pth'):
             raise FileExistsError(f"Refusing to overwrite files of a previous run. {f} already exists.")
 
@@ -199,6 +197,17 @@ def train(
                 if progress:
                     sub_bar.update(1)
 
+                # DEBUGGING
+                if batch_n == 0:
+                    utils.dump_training_batch(
+                        images=images,
+                        labels=labels,
+                        preds=preds,
+                        epoch=epoch,
+                        batch_idx=batch_n,
+                        output_dir=f"{out_dir}/visual_debug"
+                    )
+
             if progress:
                 sub_bar.close()
         except KeyboardInterrupt:
@@ -211,7 +220,6 @@ def train(
                     model=model,
                     loader=validation_dataloader,
                     loss_fn=model.loss_fn,
-                    epoch=epoch,
                     device=model.target_device,
                     verbose=verbose,
                     hard=hard_validation
@@ -255,7 +263,6 @@ def train(
             'val_loss': epoch_val_loss
         }
         torch.save(checkpoint, checkpoint_file)
-        
     if with_tensorboard:
         s_writer.close()
 
