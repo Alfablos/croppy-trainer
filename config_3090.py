@@ -14,7 +14,7 @@ val_cpu_transforms = transformsV2.Compose([transformsV2.ToImage()])
 train_gpu_transforms = lambda t: transformsV2.Compose(
     [
         transformsV2.ColorJitter(brightness=0.5, contrast=0.8, saturation=0.4),
-        transformsV2.GaussianBlur(kernel_size=(7, 13), sigma=(1.0, 6)),
+        transformsV2.GaussianBlur(kernel_size=(15, 31), sigma=(2.0, 9)),
         transformsV2.ElasticTransform(alpha=40.0),
         transformsV2.RandomPerspective(
             distortion_scale=0.5, p=0.7
