@@ -187,7 +187,7 @@ def train(
                     images, labels = gpu_transforms(images.to('cuda'), labels.to('cuda'))
                 new_h, new_w = images.shape[-2:]
                 labels = labels / torch.tensor([new_w, new_h], device='cuda')
-                labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 0.1)
+                labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
 
                 optimizer.zero_grad()
                 preds = model(images)
