@@ -35,8 +35,11 @@ def run_crawl(args):
         labels_ext=args.label_extension,
         output=args.output,
         compute_corners=args.compute_corners,
+        coords_scale_percentage=float(args.corners_recess_percentage),
         check_normalization=args.check_normalization,
         verbose=args.verbose,
+        progress=args.progress,
+        limit=args.limit
     )
 
 
@@ -64,8 +67,11 @@ def run_precompute(args):
             images_ext=args.image_extension,
             labels_ext=args.label_extension,
             compute_corners=args.compute_corners,
+            coords_scale_percentage=float(args.corners_recess_percentage),
             check_normalization=args.check_normalization,
             verbose=args.verbose,
+            progress=args.progress,
+            limit=args.limit
         )
 
     precompute(
@@ -77,7 +83,9 @@ def run_precompute(args):
         dry_run=args.dry_run,
         purpose=Purpose.from_str(args.purpose),
         verbose=args.verbose,
+        progress=args.progress,
         compute_corners=args.compute_corners,
+        coords_scale_percentage=float(args.corners_recess_percentage),
         strict=args.strict,
         n_workers=args.workers,
         commit_freq=args.commit_frequency,

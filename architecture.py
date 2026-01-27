@@ -5,7 +5,7 @@ from enum import Enum
 import numpy as np
 from numpy.typing import NDArray
 
-from common import Precision
+from common import Precision, Device
 from utils import assert_never, resize_img, coords_from_segmentation_mask
 
 
@@ -23,7 +23,7 @@ class Architecture(Enum):
         return self.value
 
     def get_transform_logic(
-        self,
+        self, coords_scale_percentage: float
     ) -> Callable[[dict, int, int, Precision], ProcessResult]:
         if self == Architecture.RESNET:
             return self._transform_resnet
@@ -70,7 +70,7 @@ class Architecture(Enum):
         return img_resized, original_shape
 
     @staticmethod
-    def _transform_resnet(row, h: int, w: int):
+    def _transform_resnet(row, h: int, w: int, coords_scale_percentage: float):
         """
         Resize the image and return the coordinates from the mask.
         """
@@ -85,7 +85,9 @@ class Architecture(Enum):
             )
         elif "label_path" in row:  # compute cords from mask
             mask = cv2.imread(row["label_path"], cv2.IMREAD_GRAYSCALE)
-            coords = coords_from_segmentation_mask(mask)
+            coords = coords_from_segmentation_mask(
+                mask, device=Device.CPU, scale_percentage=coords_scale_percentage
+            )
             if isinstance(coords, torch.Tensor):
                 coords: NDArray = coords.numpy()
             else:
@@ -105,7 +107,7 @@ class Architecture(Enum):
         )  # they were still uint32 and _scale is float
         coords[:, 0] *= x_scale
         coords[:, 1] *= y_scale
-        coords.flatten()
+        coords = coords.flatten()
 
         return ProcessResult(img_resized, coords)
 

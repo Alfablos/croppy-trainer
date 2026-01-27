@@ -50,6 +50,19 @@ if __name__ == "__main__":
 
     crawl_cmd.add_argument("--data-root", "--root", "-r", required=True)
     crawl_cmd.add_argument(
+        "--corners-recess-percentage",
+        "--corners-recess",
+        "--corners-reduction-percentage",
+        "--corners-reduction",
+        "--recess",
+        "--reduction",
+        "-R",
+        required=False,
+        default=0.05,
+        help="how much the corners should move towards the center in the labels."
+        + "Helps compensate the model error, preventing background pixels to sneak in the final image.",
+    )
+    crawl_cmd.add_argument(
         "--image-extension",
         "--image-ext",
         "--iext",
@@ -70,11 +83,26 @@ if __name__ == "__main__":
     )
     crawl_cmd.add_argument("--compute-corners", "-c", action="store_true")
     crawl_cmd.add_argument("--check-normalization", "-n", action="store_true")
-    crawl_cmd.add_argument("--verbose", "-v", action="store_true")
+    crawl_cmd.add_argument("--verbose", "-v", action="store_true", required=False, default=False)
+    crawl_cmd.add_argument("--progress", action="store_true", required=False, default=False)
+    crawl_cmd.add_argument("--limit", "-L", type=int, help="Limit the number of items to include")
     crawl_cmd.set_defaults(func=run_crawl)
 
     ## precompute (crawler options) ## # the options of the crawler are only read if --csv is not set
     precompute_cmd.add_argument("--compute-corners", "-c", action="store_true")
+    precompute_cmd.add_argument(
+        "--corners-recess-percentage",
+        "--corners-recess",
+        "--corners-reduction-percentage",
+        "--corners-reduction",
+        "--recess",
+        "--reduction",
+        "-R",
+        required=False,
+        default=0.05,
+        help="how much the corners should move towards the center in the labels."
+             + "Helps compensate the model error, preventing background pixels to sneak in the final image.",
+    )
     precompute_cmd.add_argument("--check-normalization", "-n", action="store_true")
     precompute_cmd.add_argument(
         "--image-extension",
@@ -104,7 +132,8 @@ if __name__ == "__main__":
         "--commit-frequency", "--commit-freq", required=False, default=100
     )
     precompute_cmd.add_argument("--dry-run", required=False, action="store_true")
-    precompute_cmd.add_argument("--verbose", "-v", required=False, action="store_true")
+    precompute_cmd.add_argument("--verbose", "-v", required=False, default=False, action="store_true")
+    precompute_cmd.add_argument("--progress", required=False, default=False, action="store_true")
     precompute_cmd.add_argument("--strict", "-s", required=False, action="store_true")
     precompute_cmd.add_argument(
         "--workers",
@@ -129,6 +158,7 @@ if __name__ == "__main__":
         + "WARNING: Requires an amount of additional storage space equal to the size of the store actual (non sparse) content."
         + "Preprocessing duration might increase dramatically.",
     )
+    precompute_cmd.add_argument("--limit", "-L", type=int, help="Limit the number of items to include")
     precompute_cmd.set_defaults(func=run_precompute)
 
     ## Train ##

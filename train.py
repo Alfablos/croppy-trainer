@@ -186,7 +186,7 @@ def train(
         model.train()
 
         if verbose:
-            print(f"Starting epoch {epoch}.")
+            print(f"Starting epoch {epoch + 1}.")
 
         cumulative_train_loss = 0.0
 
@@ -212,7 +212,7 @@ def train(
                 batch_n += 1
                 if verbose:
                     print(
-                        f"Training: tarting batch {batch_n + 1} of {len(train_dataloader)}"
+                        f"Training: starting batch {batch_n + 1} of {len(train_dataloader)}"
                     )
                 images, labels = (
                     images.to(model.target_device.value),
@@ -246,7 +246,7 @@ def train(
                     sub_bar.update(1)
 
                 if debug and epoch % debug == 0:
-                        debug_fn(i=images, l=labels, p=preds, purpose=Purpose.TRAINING)
+                    debug_fn(i=images, l=labels, p=preds, purpose=Purpose.TRAINING)
 
             if progress:
                 sub_bar.close()

@@ -68,6 +68,7 @@ def find_max_dims(paths: List[str]):
 
 def coords_from_segmentation_mask(
     mask: NDArray | torch.Tensor,
+    scale_percentage: float,
     device: Device = Device.CPU,
 ) -> torch.Tensor | NDArray:
     """
@@ -127,14 +128,18 @@ def coords_from_segmentation_mask(
         tr = white_xy[torch.argmin(topright_to_bottomleft_diagonal)]
         br = white_xy[torch.argmax(topleft_to_bottoright_diagonal)]
         bl = white_xy[torch.argmax(topright_to_bottomleft_diagonal)]
-        return torch.tensor([tl, tr, br, bl], dtype=torch.float32).flatten()
+        # return torch.tensor([tl, tr, br, bl], dtype=torch.float32).flatten()
+        coords = torch.tensor([tl, tr, br, bl], dtype=torch.float32).flatten()
     else:
         tl = white_xy[np.argmin(topleft_to_bottoright_diagonal)]  # Smallest x + y
         tr = white_xy[np.argmin(topright_to_bottomleft_diagonal)]  # Smallest y - x
         br = white_xy[np.argmax(topleft_to_bottoright_diagonal)]  # Largest x + y
         bl = white_xy[np.argmax(topright_to_bottomleft_diagonal)]  # Largest y - x
-        return np.array([tl, tr, br, bl], dtype=np.float32()).flatten()
+        # return np.array([tl, tr, br, bl], dtype=np.float32()).flatten()
+        coords = np.array([tl, tr, br, bl], dtype=np.float32()).flatten()
 
+    scaled_coords = scale_to_center(coords, scale_percentage)
+    return scaled_coords
     # # normalization
     # if gpu:
     #     corners = torch.stack([tl, tr, br, bl])
@@ -150,6 +155,29 @@ def coords_from_segmentation_mask(
     #     norm_bl = [bl[0] / w, bl[1] / h]
 
     #     return np.array([norm_tl, norm_tr, norm_br, norm_bl]).flatten()
+
+
+def scale_to_center(coords: torch.Tensor | NDArray, percent: float):
+    is_tensor = isinstance(coords, torch.Tensor)
+    original_shape = coords.shape
+    points = coords.reshape(4, 2)
+
+    center = (
+        points.mean(dim=0, keepdim=True)
+        if is_tensor
+        else points.mean(axis=0, keepdims=True)
+    )
+
+    # the corners need to come closer to the center
+    # this basically means that the sum of the coordinates of P (point) and C (center) has to stay constant during the operation
+    # lerp formula slightly modified: should be instead `points * percent + center * (1 - percent)
+    # but I want the user to specify how much they want to SHORTEN, not keep!
+    scaled = points * (1 - percent) + center * percent
+
+    if is_tensor:
+        return scaled.flatten().to(dtype=coords.dtype).reshape(original_shape)
+    else:
+        return scaled.flatten().astype(coords.dtype).reshape(original_shape)
 
 
 def launch_tensorboard(log_dir: str, host: str = "0.0.0.0", port: int = 6006) -> str:
@@ -337,9 +365,28 @@ def inspect_dataset(
     env.close()
 
 
+def lmdb_get_int(key: str, lmdb_path: str):
+    env = lmdb.open(
+        lmdb_path, readonly=True, lock=False, readahead=False, meminit=False
+    )
+
+    with env.begin(write=False) as t:
+        val = t.get(key.encode("ascii"))
+        if val is None:
+            print("Not found.")
+            exit(1)
+        print(int.from_bytes(val, "big"))
+
+
+
+
+
+
 if __name__ == "__main__":
     LMDB_PATH = "./hires/training_data/data_resnet_training_22092x1024x768.lmdb"
 
-    inspect_dataset(
-        lmdb_path=LMDB_PATH, output_dir="./hires_dump/train", start_idx=0, count=20
-    )
+    # inspect_dataset(
+    #     lmdb_path=LMDB_PATH, output_dir="./hires_dump/train", start_idx=0, count=20
+    # )
+
+    lmdb_get_int('h', './hires_compact/training_data/data_resnet_training_22092x1024x768_compacted.lmdb')

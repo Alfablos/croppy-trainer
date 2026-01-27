@@ -130,6 +130,7 @@
               python
               pkgs.uv
               pkgs.ruff
+              pkgs.lmdb
             ]
             ++ (dependencies pkgs);
 

@@ -67,6 +67,9 @@ class SmartDocDataset(Dataset):
     def __getitem__(self, i):
         img_idx = f"i{i}"
         lbl_idx = f"l{i}"
+        # Note: reading back 'corners_recess_percentage', which was stored via struct
+        # corners_recess_percentage = struct.unpack('f', transaction.get("my_key".encode("ascii")))[0]
+
 
         env = self._get_or_init_env()
         with env.begin(write=False) as transaction:
