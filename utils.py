@@ -198,8 +198,6 @@ def dump_training_batch(
     preds: torch.Tensor,
     epoch: int,
     batch_idx: int,
-    purpose: Purpose,
-    output_dir: str = "./debug_dumps",
 ):
     """
     Dumps a batch of images with Ground Truth (Green) and Predictions (Red) drawn on them.
@@ -210,9 +208,7 @@ def dump_training_batch(
         preds:  (B, 8) Normalized coordinates [0-1] (on GPU or CPU)
         epoch: Current epoch number
         batch_idx: Current batch index
-        output_dir: Directory to save images
     """
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     # 1. Move everything to CPU and numpy
     images_np = images.detach().cpu()
@@ -231,6 +227,7 @@ def dump_training_batch(
 
     # Iterate through batch
     batch_size = images.shape[0]
+    image_map = dict()
     for i in range(batch_size):
         # A. Setup Image
         # (3, H, W) -> (H, W, 3)
@@ -259,8 +256,11 @@ def dump_training_batch(
         cv2.polylines(img_bgr, [pred_px], isClosed=True, color=(0, 0, 255), thickness=2)
 
         # D. Save
-        fname = f"{purpose}{i}_{batch_idx}_{epoch}.jpg"
-        cv2.imwrite(str(Path(output_dir) / fname), img_bgr)
+        fname = f"epoch-{epoch}_batch-{batch_idx}_example-{i}.jpg"
+        image_map[fname] = img_bgr
+
+    return image_map
+
 
 
 # AI generated
@@ -338,7 +338,7 @@ def inspect_dataset(
             # 4. Draw
             # Draw contours (Green)
             cv2.polylines(
-                viz_image, [coords_px], isClosed=True, color=(0, 255, 0), thickness=2
+                viz_image, [coords_px], isClosed=True, color=(0, 255, 0), thickness=1
             )
 
             # Draw individual points to check ordering (Red circles)
@@ -383,10 +383,10 @@ def lmdb_get_int(key: str, lmdb_path: str):
 
 
 if __name__ == "__main__":
-    LMDB_PATH = "./hires/training_data/data_resnet_training_22092x1024x768.lmdb"
+    LMDB_PATH = "./hires_compact/training_data/data_resnet_training_1000x1024x768_compacted.lmdb"
 
-    # inspect_dataset(
-    #     lmdb_path=LMDB_PATH, output_dir="./hires_dump/train", start_idx=0, count=20
-    # )
+    inspect_dataset(
+        lmdb_path=LMDB_PATH, output_dir="./hires_dump/train", start_idx=0, count=20
+    )
 
-    lmdb_get_int('h', './hires_compact/training_data/data_resnet_training_22092x1024x768_compacted.lmdb')
+    # lmdb_get_int('h', './hires_compact/training_data/data_resnet_training_22092x1024x768_compacted.lmdb')

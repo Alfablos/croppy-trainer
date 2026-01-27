@@ -32,7 +32,7 @@ from architecture import Architecture, ProcessResult
 
 def worker(
     row: dict,
-    transform_fn: Callable[[dict, int, int], ProcessResult],
+    transform_fn: Callable[[dict, int, int, float], ProcessResult],
     coords_scale_percentage: float,
     target_h: int,
     target_w: int,
@@ -263,16 +263,4 @@ def precompute(
 
 
 if __name__ == "__main__":
-    precompute(
-        output_dir="precomp_test",
-        target_h=512,
-        target_w=384,
-        compute_corners=True,
-        dataset_map_csv="dataset.csv",
-        dry_run=False,
-        verbose=True,
-        strict=True,
-        architecture=Architecture.RESNET,
-        n_workers=13,
-        purpose=Purpose.TRAINING,
-    )
+    pass

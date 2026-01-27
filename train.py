@@ -1,3 +1,4 @@
+import cv2
 import torchvision.tv_tensors
 from torchvision import tv_tensors
 
@@ -35,8 +36,8 @@ class CroppyNet(
         target_device: Device,
         images_height: int,
         images_width: int,
-        learning_rate: float = 0.001,
-        dropout=0.3,
+        dropout: float,
+        learning_rate: float
     ):
         super().__init__()
 
@@ -96,6 +97,7 @@ def validation_data(
     verbose: bool,
     hard: bool,
     debug_fn: Callable | None,
+    visual_debug_path: str
 ) -> float:
     model.eval()
     val_loss = 0.0
@@ -122,7 +124,12 @@ def validation_data(
         preds = model(images)
         val_loss += loss_fn(preds, labels).item()
         if debug_fn:
-            debug_fn(purpose=Purpose.VALIDATION, i=images, l=labels, p=preds)
+            end = min(10, len(images))
+            # debug_fn(purpose=Purpose.VALIDATION, i=images, l=labels, p=preds)
+            img_dict = debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end])
+            for fname, data in img_dict.items():
+                cv2.imwrite(visual_debug_path + f'/validation_{fname}', data)
+
 
     return val_loss / len(loader)
 
@@ -178,6 +185,13 @@ def train(
     else:
         epochs_iter = range(epochs)
 
+    visual_debug_training_subdir = '/visual_debug_training'
+    visual_debug_validation_subdir = '/visual_debug_validation'
+    visual_debug_training_path = f'{out_dir}' + visual_debug_training_subdir
+    visual_debug_validation_path = f'{out_dir}' + visual_debug_validation_subdir
+    Path(visual_debug_training_path).mkdir(parents=True, exist_ok=True)
+    Path(visual_debug_validation_path).mkdir(parents=True, exist_ok=True)
+
     # THE MODEL MUST BE MOVED TO cTHE RIGHT DEVICE BEFORE INITIALIZING THE OPTIMIZER
     model = model.to(model.target_device.value)
     optimizer = Adam(model.parameters(), lr=model.learning_rate)
@@ -190,15 +204,16 @@ def train(
 
         cumulative_train_loss = 0.0
 
+
         debug_fn = (
-            lambda purpose, i, l, p: utils.dump_training_batch(
+            lambda i, l, p: utils.dump_training_batch(
                 images=i,
                 labels=l,
                 preds=p,
                 epoch=epoch,
                 batch_idx=batch_n,
-                purpose=purpose,
-                output_dir=f"{out_dir}/visual_debug_{purpose}",
+                # purpose=purpose,
+                # output_dir=f"{out_dir}/visual_debug_{purpose}",
             )
             if debug
             else None
@@ -246,7 +261,11 @@ def train(
                     sub_bar.update(1)
 
                 if debug and epoch % debug == 0:
-                    debug_fn(i=images, l=labels, p=preds, purpose=Purpose.TRAINING)
+                    end = min(10, len(images))
+                    # debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end], purpose=Purpose.TRAINING)
+                    img_dict = debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end])
+                    for fname, data in img_dict.items():
+                        cv2.imwrite(f"{visual_debug_training_path}/training_{fname}", data)
 
             if progress:
                 sub_bar.close()
@@ -264,6 +283,7 @@ def train(
                     verbose=verbose,
                     hard=hard_validation,
                     debug_fn=debug_fn if debug and epoch % debug == 0 else None,
+                    visual_debug_path=visual_debug_validation_path,
                 )
             except KeyboardInterrupt:
                 print("Aborting due to user interruption...")

@@ -1,5 +1,5 @@
 import torch
-from typing import Callable, TypeVar
+from typing import Callable, TypeVar, Never
 import cv2
 from enum import Enum
 import numpy as np
@@ -24,13 +24,13 @@ class Architecture(Enum):
 
     def get_transform_logic(
         self, coords_scale_percentage: float
-    ) -> Callable[[dict, int, int, Precision], ProcessResult]:
+    ) -> Callable[[dict, int, int, int | float], ProcessResult]:
         if self == Architecture.RESNET:
             return self._transform_resnet
-        elif self == Architecture.UNET:
-            return self._transform_unet
+        # elif self == Architecture.UNET:
+        #     return self._transform_unet
         else:
-            assert_never(self)
+            assert_never(Never)
 
     @staticmethod
     def from_str(s: str):
