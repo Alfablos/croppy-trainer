@@ -123,7 +123,9 @@ def validation_data(
 
         preds = model(images)
         val_loss += loss_fn(preds, labels).item()
-        if debug_fn:
+        
+        # only dump debug images on last minibatch
+        if debug_fn and batch_n == len(loader):
             end = min(10, len(images))
             # debug_fn(purpose=Purpose.VALIDATION, i=images, l=labels, p=preds)
             img_dict = debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end])
@@ -260,7 +262,8 @@ def train(
                 if progress:
                     sub_bar.update(1)
 
-                if debug and epoch % debug == 0:
+                # debug dump only on last minibatch of each epoch if epoch % debug == 0
+                if debug and epoch % debug == 0 and batch_n == len(train_dataloader):
                     end = min(10, len(images))
                     # debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end], purpose=Purpose.TRAINING)
                     img_dict = debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end])

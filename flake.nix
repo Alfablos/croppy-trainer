@@ -47,29 +47,34 @@
         );
 
       dependencies = pkgs: with pkgs; [ ];
-      cudaLibraries = pkgs: with pkgs; [
-        cudaPackages.libcutensor
-        cudaPackages.libcublas
-        cudaPackages.libcusolver
-        cudaPackages.libcufft
-        cudaPackages.libcufile
-        cudaPackages.libcurand
-        cudaPackages.libcusparse
-        cudaPackages.cuda_nvrtc # libncrtc.so for cupy
-        cudaPackages.cudatoolkit
-        cudaPackages.cuda_cudart
-        cudaPackages.cuda_nvtx
-        cudaPackages.cuda_cupti
-        cudaPackages.cuda_nvrtc
-        cudaPackages.cudnn
-        # cudaPackages.cusparselt
-        cudaPackages.nccl
-        
-      ];
+      cudaLibraries =
+        pkgs: with pkgs; [
+          cudaPackages.libcutensor
+          cudaPackages.libcublas
+          cudaPackages.libcusolver
+          cudaPackages.libcufft
+          cudaPackages.libcufile
+          cudaPackages.libcurand
+          cudaPackages.libcusparse
+          cudaPackages.cuda_nvrtc # libncrtc.so for cupy
+          cudaPackages.cudatoolkit
+          cudaPackages.cuda_cudart
+          cudaPackages.cuda_nvtx
+          cudaPackages.cuda_cupti
+          cudaPackages.cuda_nvrtc
+          cudaPackages.cudnn
+          # cudaPackages.cusparselt
+          cudaPackages.nccl
 
-      allLibrariesInPath = pkgs: with pkgs; [
-        stdenv.cc.cc
-      ] ++ (cudaLibraries pkgs);
+        ];
+
+      allLibrariesInPath =
+        pkgs:
+        with pkgs;
+        [
+          stdenv.cc.cc
+        ]
+        ++ (cudaLibraries pkgs);
 
       gpuDependantPackages =
         pkgs:
@@ -86,33 +91,41 @@
       fs = nixpkgs.lib.fileset;
     in
     {
-      packages = forAllSystems (pkgs:
-      let
-        python = pythonForPkgs pkgs;
-      in  
-      {
-        default = self.packages.${pkgs.stdenv.hostPlatform.system}.croppy-trainer;
-        croppy-trainer = pkgs.stdenv.mkDerivation {
-          name = "croppy-trainer";
-          src = fs.toSource {
-            root = ./.;
-            fileset = fs.unions [ (fs.fileFilter (file: file.hasExt "py") ./.) ];
+      packages = forAllSystems (
+        pkgs:
+        let
+          python = pythonForPkgs pkgs;
+        in
+        {
+          default = self.packages.${pkgs.stdenv.hostPlatform.system}.croppy-trainer;
+          quickScript = pkgs.callPackage ./script.nix { };
+          croppy-trainer = pkgs.stdenv.mkDerivation {
+            name = "croppy-trainer";
+            src = fs.toSource {
+              root = ./trainer;
+              fileset = fs.unions [ (fs.fileFilter (file: file.hasExt "py") ./trainer) ];
+            };
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+            propagatedBuildInputs = [
+              python
+            ]
+            ++ (cudaLibraries pkgs);
+            # makeWrapper creates an executable in $out/bin/croppy-trainer
+            installPhase = ''
+              mkdir -p $out/bin $out/libexec/croppy-trainer
+              cp -r . $out/libexec/croppy-trainer
+              makeWrapper ${python}/bin/python $out/bin/croppy-trainer \
+                --add-flags "$out/libexec/croppy-trainer/croppy.py"
+            '';
           };
-          nativeBuildInputs = [ pkgs.makeWrapper ];
-          propagatedBuildInputs = [
-            python
-          ] ++ (cudaLibraries pkgs);
-          # makeWrapper creates an executable in $out/bin/croppy-trainer
-          installPhase = ''
-            mkdir -p $out/bin $out/libexec/croppy-trainer
-            cp -r . $out/libexec/croppy-trainer
-            makeWrapper ${python}/bin/python $out/bin/croppy-trainer \
-              --add-flags "$out/libexec/croppy-trainer/main.py"
-          '';
-        };
-      });
+        }
+      );
       apps = forAllSystems (pkgs: {
         default = self.apps.${pkgs.stdenv.hostPlatform.system}.main;
+        quickScript = {
+          type = "app";
+          program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.quickScript}";
+        };
         main = {
           type = "app";
           program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.croppy-trainer}/bin/croppy-trainer";

@@ -134,7 +134,8 @@ if __name__ == "__main__":
     precompute_cmd.add_argument("--dry-run", required=False, action="store_true")
     precompute_cmd.add_argument("--verbose", "-v", required=False, default=False, action="store_true")
     precompute_cmd.add_argument("--progress", required=False, default=False, action="store_true")
-    precompute_cmd.add_argument("--strict", "-s", required=False, action="store_true")
+    precompute_cmd.add_argument("--strict", "-s", required=False, action="store_true",
+        help="Error if a single image fails to be processed.")
     precompute_cmd.add_argument(
         "--workers",
         "--threads",
@@ -182,7 +183,8 @@ if __name__ == "__main__":
     train_cmd.add_argument("--precision", "-p", required=False, default="f32")
     train_cmd.add_argument("--limit", required=False, type=int)
     train_cmd.add_argument(
-        "--workers", "-w", required=False, type=int, default=int(cpu_count() / 2)
+        "--workers", "-w", required=False, type=int, default=int(cpu_count() / 2),
+        help="How many worker per dataset to instantiate"
     )
     train_cmd.add_argument("--batch-size", "-b", required=False, type=int, default=32)
     train_cmd.add_argument(
