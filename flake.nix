@@ -1,6 +1,6 @@
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs?ref=13868c071cc73a5e9f610c47d7bb08e5da64fdd5";
+    nixpkgs.url = "github:nixos/nixpkgs?ref=48698d12cc10555a4f3e3222d9c669b884a49dfe"; # nixpkgs-unstable";
   };
   outputs =
     {
@@ -47,19 +47,34 @@
         );
 
       dependencies = pkgs: with pkgs; [ ];
-
-      mkLibraryPath =
-        pkgs:
-        with pkgs;
-        lib.makeLibraryPath [
-          stdenv.cc.cc # numpy (on which scenedetect depends) needs C libraries
-          cudaPackages.cuda_nvrtc # libncrtc.so for cupy
-          cudaPackages.cudatoolkit
+      cudaLibraries =
+        pkgs: with pkgs; [
           cudaPackages.libcutensor
           cudaPackages.libcublas
           cudaPackages.libcusolver
+          cudaPackages.libcufft
+          cudaPackages.libcufile
+          cudaPackages.libcurand
+          cudaPackages.libcusparse
+          cudaPackages.cuda_nvrtc # libncrtc.so for cupy
+          cudaPackages.cudatoolkit
           cudaPackages.cuda_cudart
+          cudaPackages.cuda_nvtx
+          cudaPackages.cuda_cupti
+          cudaPackages.cuda_nvrtc
+          cudaPackages.cudnn
+          # cudaPackages.cusparselt
+          cudaPackages.nccl
+
         ];
+
+      allLibrariesInPath =
+        pkgs:
+        with pkgs;
+        [
+          stdenv.cc.cc
+        ]
+        ++ (cudaLibraries pkgs);
 
       gpuDependantPackages =
         pkgs:
@@ -76,31 +91,41 @@
       fs = nixpkgs.lib.fileset;
     in
     {
-      packages = forAllSystems (pkgs:
-      let
-        python = pythonForPkgs pkgs;
-      in  
-      {
-        default = self.packages.${pkgs.stdenv.hostPlatform.system}.croppy-trainer;
-        croppy-trainer = pkgs.stdenv.mkDerivation {
-          name = "croppy-trainer";
-          src = fs.toSource {
-            root = ./.;
-            fileset = fs.unions [ (fs.fileFilter (file: file.hasExt "py") ./.) ];
+      packages = forAllSystems (
+        pkgs:
+        let
+          python = pythonForPkgs pkgs;
+        in
+        {
+          default = self.packages.${pkgs.stdenv.hostPlatform.system}.croppy-trainer;
+          quickScript = pkgs.callPackage ./script.nix { };
+          croppy-trainer = pkgs.stdenv.mkDerivation {
+            name = "croppy-trainer";
+            src = fs.toSource {
+              root = ./trainer;
+              fileset = fs.unions [ (fs.fileFilter (file: file.hasExt "py") ./trainer) ];
+            };
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+            propagatedBuildInputs = [
+              python
+            ]
+            ++ (cudaLibraries pkgs);
+            # makeWrapper creates an executable in $out/bin/croppy-trainer
+            installPhase = ''
+              mkdir -p $out/bin $out/libexec/croppy-trainer
+              cp -r . $out/libexec/croppy-trainer
+              makeWrapper ${python}/bin/python $out/bin/croppy-trainer \
+                --add-flags "$out/libexec/croppy-trainer/croppy.py"
+            '';
           };
-          nativeBuildInputs = [ pkgs.makeWrapper ];
-          propagatedBuildInputs = [ python ];
-          # makeWrapper creates an executable in $out/bin/croppy-trainer
-          installPhase = ''
-            mkdir -p $out/bin $out/libexec/croppy-trainer
-            cp -r . $out/libexec/croppy-trainer
-            makeWrapper ${python}/bin/python $out/bin/croppy-trainer \
-              --add-flags "$out/libexec/croppy-trainer/main.py"
-          '';
-        };
-      });
+        }
+      );
       apps = forAllSystems (pkgs: {
         default = self.apps.${pkgs.stdenv.hostPlatform.system}.main;
+        quickScript = {
+          type = "app";
+          program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.quickScript}";
+        };
         main = {
           type = "app";
           program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.croppy-trainer}/bin/croppy-trainer";
@@ -113,11 +138,12 @@
             cudaSupport = pkgs.config.cudaSupport;
           in
           pkgs.mkShell {
-            inputsFrom = [ ];
+            inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.croppy-trainer ];
             packages = [
               python
               pkgs.uv
               pkgs.ruff
+              pkgs.lmdb
             ]
             ++ (dependencies pkgs);
 
@@ -125,7 +151,7 @@
               ${
                 if cudaSupport then
                   ''
-                    export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${mkLibraryPath pkgs}:/run/opengl-driver/lib:/run/opengl-driver-32/lib"
+                    export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:${pkgs.lib.makeLibraryPath (allLibrariesInPath pkgs)}:/run/opengl-driver/lib:/run/opengl-driver-32/lib"
                     export XLA_FLAGS="--xla_gpu_cuda_data_dir=${pkgs.cudaPackages.cudatoolkit}"
                     export CUDA_PATH=${pkgs.cudaPackages.cudatoolkit}
                     export EXTRA_CCFLAGS="-I/usr/include"

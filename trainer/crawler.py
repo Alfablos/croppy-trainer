@@ -18,9 +18,12 @@ def crawl(
     output: str,
     images_ext: str,
     labels_ext: str,
+    coords_scale_percentage: float,
+    limit: int | None,
     compute_corners=True,
     check_normalization=True,
     verbose=False,
+    progress=False,
 ):
     """
     Crawls a directory structure to find and pair image files with their corresponding label files, optionally computes normalized document corner coordinates from segmentation masks, and saves the results to a CSV file.
@@ -35,9 +38,9 @@ def crawl(
         labels_ext (str): Extension pattern to match label/segmentation mask files
             (e.g., `.png`, `_lbl.png`). Labels must match images in number and be pairable by
             their sorted order.
-        precision (Precision): Target numerical precision for future training.
-            Determines the dtype used when loading segmentation masks and affects normalization
-            behavior (normalization for Float32/Float16, none otherwise). Options are FP32, FP16, or UINT8.
+        coords_scale_percentage (float): how much the corners should move towards the center in the labels. Helps compensate
+            the model error preventing background pixels to sneak in the final image.
+        limit (int, optional): limits the numer of examples collected. Defaults to None, crawling the whole directory.
         compute_corners (bool, optional): If True, computes normalized corner coordinates (x1, y1,
             x2, y2, x3, y3, x4, y4) from segmentation masks using `utils.coords_from_segmentation_mask`.
             If False, only saves image and label paths without coordinates. Defaults to True.
@@ -46,6 +49,7 @@ def crawl(
             preprocessing pipeline. Defaults to True.
         verbose (bool, optional): If True, prints progress information and uses tqdm to show a
             progress bar. Defaults to False.
+        progress (bool, optional): If true, shows a progress bar. Defaults to False.
 
     Raises:
         ValueError: If `images_ext` is None.
@@ -93,6 +97,11 @@ def crawl(
     labels = sorted(list(root.glob("**/*" + labels_ext)))
     n_images, n_labels = len(images), len(labels)
     assert n_images == n_labels, "Images and labels differ in number."
+    # not very optimized for immense datasets!
+    if limit:
+        images = images[:limit]
+        labels = labels[:limit]
+
 
     if verbose:
         print(f"Found {len(images)} images with labels.")
@@ -100,9 +109,9 @@ def crawl(
     rows = []
     save_chunk_size = 100
 
-    if verbose:
+    if progress:
         progress = tqdm(total=len(images), desc="Pairing examples and labels")
-        
+
     output_p = Path(output)
     if not output_p.parent.exists():
         output_p.parent.mkdir(parents=True)
@@ -114,17 +123,18 @@ def crawl(
             if compute_corners:
                 mask = cv2.imread(filename=str(label), flags=cv2.IMREAD_GRAYSCALE)
 
-
                 coords = utils.coords_from_segmentation_mask(
-                    mask, device=Device.CPU
+                    mask, device=Device.CPU, scale_percentage=coords_scale_percentage
                 )
                 fields = ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"]
                 for coord_name, value in zip(fields, coords):
                     row[coord_name] = value
-            
+
+            if compute_corners:
+                row["corners_recess_percentage"] = coords_scale_percentage
             rows.append(row)
 
-            if verbose:
+            if progress:
                 progress.update(1)
 
             if len(rows) >= save_chunk_size:

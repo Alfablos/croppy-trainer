@@ -18,7 +18,7 @@ if __name__ == "__main__":
     # python main.py pc -o ./ --height 512 --width 384 --compute-corners --strict --image-extension '_in.png' --label-extension '_gt.png' --architecture resnet --data-root ~/Downloads/extended_smartdoc_dataset/Extended\ Smartdoc\ dataset/train --purpose train -v
     # python main.py pc -o ./ --height 512 --width 384 --compute-corners --strict --image-extension '_in.png' --label-extension '_gt.png' --architecture resnet --data-root ~/Downloads/extended_smartdoc_dataset/Extended\ Smartdoc\ dataset/validation --purpose val -v
     # python main.py train --out-dir ./ --db ./train_data/data_resnet_train.lmdb --valdb ./validation_data/data_resnet_validation.lmdb -a resnet --lr 0.001 -e 10 --tensorboard --progress --device gpu
-    
+
     parser = argparse.ArgumentParser()
     parser.set_defaults(func=lambda _: parser.print_help())
     # build-ds --data-root /home/antonio/Downloads/extended_smartdoc_dataset/Extended\ Smartdoc\ dataset/train --iext '_in.png' --lext='_gt.png' -o ./dataset.csv -v -n -c
@@ -50,6 +50,19 @@ if __name__ == "__main__":
 
     crawl_cmd.add_argument("--data-root", "--root", "-r", required=True)
     crawl_cmd.add_argument(
+        "--corners-recess-percentage",
+        "--corners-recess",
+        "--corners-reduction-percentage",
+        "--corners-reduction",
+        "--recess",
+        "--reduction",
+        "-R",
+        required=False,
+        default=0.05,
+        help="how much the corners should move towards the center in the labels."
+        + "Helps compensate the model error, preventing background pixels to sneak in the final image.",
+    )
+    crawl_cmd.add_argument(
         "--image-extension",
         "--image-ext",
         "--iext",
@@ -70,11 +83,26 @@ if __name__ == "__main__":
     )
     crawl_cmd.add_argument("--compute-corners", "-c", action="store_true")
     crawl_cmd.add_argument("--check-normalization", "-n", action="store_true")
-    crawl_cmd.add_argument("--verbose", "-v", action="store_true")
+    crawl_cmd.add_argument("--verbose", "-v", action="store_true", required=False, default=False)
+    crawl_cmd.add_argument("--progress", action="store_true", required=False, default=False)
+    crawl_cmd.add_argument("--limit", "-L", type=int, help="Limit the number of items to include")
     crawl_cmd.set_defaults(func=run_crawl)
 
     ## precompute (crawler options) ## # the options of the crawler are only read if --csv is not set
     precompute_cmd.add_argument("--compute-corners", "-c", action="store_true")
+    precompute_cmd.add_argument(
+        "--corners-recess-percentage",
+        "--corners-recess",
+        "--corners-reduction-percentage",
+        "--corners-reduction",
+        "--recess",
+        "--reduction",
+        "-R",
+        required=False,
+        default=0.05,
+        help="how much the corners should move towards the center in the labels."
+             + "Helps compensate the model error, preventing background pixels to sneak in the final image.",
+    )
     precompute_cmd.add_argument("--check-normalization", "-n", action="store_true")
     precompute_cmd.add_argument(
         "--image-extension",
@@ -104,8 +132,10 @@ if __name__ == "__main__":
         "--commit-frequency", "--commit-freq", required=False, default=100
     )
     precompute_cmd.add_argument("--dry-run", required=False, action="store_true")
-    precompute_cmd.add_argument("--verbose", "-v", required=False, action="store_true")
-    precompute_cmd.add_argument("--strict", "-s", required=False, action="store_true")
+    precompute_cmd.add_argument("--verbose", "-v", required=False, default=False, action="store_true")
+    precompute_cmd.add_argument("--progress", required=False, default=False, action="store_true")
+    precompute_cmd.add_argument("--strict", "-s", required=False, action="store_true",
+        help="Error if a single image fails to be processed.")
     precompute_cmd.add_argument(
         "--workers",
         "--threads",
@@ -116,6 +146,20 @@ if __name__ == "__main__":
         default=cpu_count(),
     )
     precompute_cmd.add_argument("--purpose", "-P", required=True, type=str)
+    precompute_cmd.add_argument(
+        "--compact-store",
+        "--compact-database",
+        "--compact-db",
+        "--compact",
+        "-C",
+        required=False,
+        action="store_true",
+        default=False,
+        help="Avoids LMDB store sparsity to ensure compatibility with S3 storage and non sparse-tolerant storage backends."
+        + "WARNING: Requires an amount of additional storage space equal to the size of the store actual (non sparse) content."
+        + "Preprocessing duration might increase dramatically.",
+    )
+    precompute_cmd.add_argument("--limit", "-L", type=int, help="Limit the number of items to include")
     precompute_cmd.set_defaults(func=run_precompute)
 
     ## Train ##
@@ -123,28 +167,44 @@ if __name__ == "__main__":
     train_cmd.add_argument("--validation-lmdb-path", "--valdb", required=False)
     train_cmd.add_argument("--architecture", "--arch", "-a", required=True)
     train_cmd.add_argument(
-        "--learning-rate", "--lrate", "--lr", required=True, type=float
+        "--learning-rate", "--lrate", "--lr", "-l", required=True, type=float
     )
     train_cmd.add_argument("--epochs", "-e", required=True, type=int)
     train_cmd.add_argument(
         "--output-directory",
-        "--out-dir"
-        "--output",
+        "--out-dir--output",
         "-o",
         required=True,
         help="Where to save the model weights and specs file",
     )
+    train_cmd.add_argument(
+        "--loss-function", "--loss-fn", "--loss", "-L", required=False, default="mse"
+    )
     train_cmd.add_argument("--precision", "-p", required=False, default="f32")
     train_cmd.add_argument("--limit", required=False, type=int)
     train_cmd.add_argument(
-        "--workers", "-w", required=False, type=int, default=int(cpu_count() / 2)
+        "--workers", "-w", required=False, type=int, default=int(cpu_count() / 2),
+        help="How many worker per dataset to instantiate"
     )
     train_cmd.add_argument("--batch-size", "-b", required=False, type=int, default=32)
-    train_cmd.add_argument("--device", "--dev", "-d", required=False, type=str, default="cuda")
+    train_cmd.add_argument(
+        "--device", "--dev", "-d", required=False, type=str, default="cuda"
+    )
     train_cmd.add_argument("--dropout", required=False, type=float, default=0.3)
+    train_cmd.add_argument(
+        "--hard-validation",
+        "--hard-val",
+        "--hard",
+        "-H",
+        action="store_true",
+        required=False,
+        default=True,
+        help="Perform the same transforms as the train set on the validation set, making it harder for the model to get a good score",
+    )
     train_cmd.add_argument(
         "--verbose", "-v", action="store_true", required=False, default=False
     )
+    train_cmd.add_argument("--debug", "-D", required=False, default=None)
     train_cmd.add_argument(
         "--progress", action="store_true", required=False, default=False
     )
@@ -160,9 +220,20 @@ if __name__ == "__main__":
     train_cmd.set_defaults(func=run_train)
 
     predict_cmd.add_argument("path")
-    predict_cmd.add_argument("--output", "-o", required=True, help="Where to save LMDB and CSV files")
-    predict_cmd.add_argument("--config", "-c", required=True, help="The JSON model config file.")
-    predict_cmd.add_argument("--device", "--dev", "-d", required=False, help="Device to run inference on", default='cuda' if torch.cuda.is_available() else 'cpu')
+    predict_cmd.add_argument(
+        "--output", "-o", required=True, help="Where to save LMDB and CSV files"
+    )
+    predict_cmd.add_argument(
+        "--config", "-c", required=True, help="The JSON model config file."
+    )
+    predict_cmd.add_argument(
+        "--device",
+        "--dev",
+        "-d",
+        required=False,
+        help="Device to run inference on",
+        default="cuda" if torch.cuda.is_available() else "cpu",
+    )
     predict_cmd.set_defaults(func=run_predict)
 
     args = parser.parse_args()
