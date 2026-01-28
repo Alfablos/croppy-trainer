@@ -83,9 +83,15 @@ if __name__ == "__main__":
     )
     crawl_cmd.add_argument("--compute-corners", "-c", action="store_true")
     crawl_cmd.add_argument("--check-normalization", "-n", action="store_true")
-    crawl_cmd.add_argument("--verbose", "-v", action="store_true", required=False, default=False)
-    crawl_cmd.add_argument("--progress", action="store_true", required=False, default=False)
-    crawl_cmd.add_argument("--limit", "-L", type=int, help="Limit the number of items to include")
+    crawl_cmd.add_argument(
+        "--verbose", "-v", action="store_true", required=False, default=False
+    )
+    crawl_cmd.add_argument(
+        "--progress", action="store_true", required=False, default=False
+    )
+    crawl_cmd.add_argument(
+        "--limit", "-L", type=int, help="Limit the number of items to include"
+    )
     crawl_cmd.set_defaults(func=run_crawl)
 
     ## precompute (crawler options) ## # the options of the crawler are only read if --csv is not set
@@ -101,7 +107,7 @@ if __name__ == "__main__":
         required=False,
         default=0.05,
         help="how much the corners should move towards the center in the labels."
-             + "Helps compensate the model error, preventing background pixels to sneak in the final image.",
+        + "Helps compensate the model error, preventing background pixels to sneak in the final image.",
     )
     precompute_cmd.add_argument("--check-normalization", "-n", action="store_true")
     precompute_cmd.add_argument(
@@ -129,13 +135,22 @@ if __name__ == "__main__":
     precompute_cmd.add_argument("--target-height", "--height", type=int, required=True)
     precompute_cmd.add_argument("--target-width", "--width", type=int, required=True)
     precompute_cmd.add_argument(
-        "--commit-frequency", "--commit-freq", required=False, default=100
+        "--commit-frequency", "--commit-freq", required=False, type=int, default=100
     )
     precompute_cmd.add_argument("--dry-run", required=False, action="store_true")
-    precompute_cmd.add_argument("--verbose", "-v", required=False, default=False, action="store_true")
-    precompute_cmd.add_argument("--progress", required=False, default=False, action="store_true")
-    precompute_cmd.add_argument("--strict", "-s", required=False, action="store_true",
-        help="Error if a single image fails to be processed.")
+    precompute_cmd.add_argument(
+        "--verbose", "-v", required=False, default=False, action="store_true"
+    )
+    precompute_cmd.add_argument(
+        "--progress", required=False, default=False, action="store_true"
+    )
+    precompute_cmd.add_argument(
+        "--strict",
+        "-s",
+        required=False,
+        action="store_true",
+        help="Error if a single image fails to be processed.",
+    )
     precompute_cmd.add_argument(
         "--workers",
         "--threads",
@@ -143,6 +158,7 @@ if __name__ == "__main__":
         "--n-threads",
         "-w",
         required=False,
+        type=int,
         default=cpu_count(),
     )
     precompute_cmd.add_argument("--purpose", "-P", required=True, type=str)
@@ -159,7 +175,9 @@ if __name__ == "__main__":
         + "WARNING: Requires an amount of additional storage space equal to the size of the store actual (non sparse) content."
         + "Preprocessing duration might increase dramatically.",
     )
-    precompute_cmd.add_argument("--limit", "-L", type=int, help="Limit the number of items to include")
+    precompute_cmd.add_argument(
+        "--limit", "-L", type=int, help="Limit the number of items to include"
+    )
     precompute_cmd.set_defaults(func=run_precompute)
 
     ## Train ##
@@ -183,8 +201,15 @@ if __name__ == "__main__":
     train_cmd.add_argument("--precision", "-p", required=False, default="f32")
     train_cmd.add_argument("--limit", required=False, type=int)
     train_cmd.add_argument(
-        "--workers", "-w", required=False, type=int, default=int(cpu_count() / 2),
-        help="How many worker per dataset to instantiate"
+        "--workers",
+        "--threads",
+        "--n-workers",
+        "--n-threads",
+        "-w",
+        required=False,
+        type=int,
+        default=int(cpu_count() / 2),
+        help="How many worker per dataset to instantiate",
     )
     train_cmd.add_argument("--batch-size", "-b", required=False, type=int, default=32)
     train_cmd.add_argument(

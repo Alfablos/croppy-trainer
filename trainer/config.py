@@ -18,8 +18,7 @@ train_gpu_transforms = lambda t: transformsV2.Compose(
         # transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
         transformsV2.ElasticTransform(alpha=40.0),
         transformsV2.RandomPerspective(
-            distortion_scale=0.5, p=0.7,
-            fill=(255, 255, 255)
+            distortion_scale=0.5, p=0.7, fill=(255, 255, 255)
         ),  # p=0.5 => half of the dataset is affected
         # All the pipeline must be computed on UINT8, conversion at last
         transformsV2.ToDtype(torch.float32, scale=True),

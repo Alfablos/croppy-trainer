@@ -39,7 +39,7 @@ def run_crawl(args):
         check_normalization=args.check_normalization,
         verbose=args.verbose,
         progress=args.progress,
-        limit=args.limit
+        limit=args.limit,
     )
 
 
@@ -71,7 +71,7 @@ def run_precompute(args):
             check_normalization=args.check_normalization,
             verbose=args.verbose,
             progress=args.progress,
-            limit=args.limit
+            limit=args.limit,
         )
 
     precompute(

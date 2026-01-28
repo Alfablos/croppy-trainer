@@ -146,7 +146,6 @@ def precompute(
             return
         raise FileExistsError(db_path)
 
-
     index_path = (
         str(output_dir)
         + f"/index_{architecture.value}_{str(purpose)}_{data_length}x{target_h}x{target_w}.csv"
@@ -241,12 +240,19 @@ def precompute(
                 print(f"Hardcoding `__len__` {db_index} in the LMDB store.")
                 print(f"Hardcoding images height `h` {target_h} in the LMDB store.")
                 print(f"Hardcoding images width `w` {target_w} in the LMDB store.")
-                print(f"Hardcoding image corners recess percentage (corners reduction) `corners_recess_percentage` {coords_scale_percentage} in the LMDB store.")
+                print(
+                    f"Hardcoding image corners recess percentage (corners reduction) `corners_recess_percentage` {coords_scale_percentage} in the LMDB store."
+                )
             transaction.put("__len__".encode("ascii"), db_index.to_bytes(64, "big"))
             transaction.put("h".encode("ascii"), target_h.to_bytes(64, "big"))
             transaction.put("w".encode("ascii"), target_w.to_bytes(64, "big"))
-            coords_scale_percentage_float_binary = struct.pack('f', coords_scale_percentage)
-            transaction.put("corners_recess_percentage".encode("ascii"), coords_scale_percentage_float_binary)
+            coords_scale_percentage_float_binary = struct.pack(
+                "f", coords_scale_percentage
+            )
+            transaction.put(
+                "corners_recess_percentage".encode("ascii"),
+                coords_scale_percentage_float_binary,
+            )
             transaction.commit()
             env.sync()
             if compact_store:

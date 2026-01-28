@@ -262,7 +262,6 @@ def dump_training_batch(
     return image_map
 
 
-
 # AI generated
 def inspect_dataset(
     lmdb_path: str, output_dir: str, start_idx: int = 0, count: int = 10
@@ -376,10 +375,6 @@ def lmdb_get_int(key: str, lmdb_path: str):
             print("Not found.")
             exit(1)
         print(int.from_bytes(val, "big"))
-
-
-
-
 
 
 if __name__ == "__main__":

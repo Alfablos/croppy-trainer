@@ -102,7 +102,6 @@ def crawl(
         images = images[:limit]
         labels = labels[:limit]
 
-
     if verbose:
         print(f"Found {len(images)} images with labels.")
 

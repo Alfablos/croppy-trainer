@@ -26,16 +26,16 @@ let
 
   # Precompute variables
   precomputeOutputDir =
-    "./hires_"
+    "./croppy_"
     + (if compact then "compact_" else "")
     + (if limit != "0" then limit else datasetLengths.training)
     + "_recess"
     + recess;
-  h = "1024";
-  w = "768";
+  h = "512";
+  w = "384";
   iext = "_in.png";
   lext = "_gt.png";
-  recess = "0.01";
+  recess = "0.005";
   computeCorners = true;
   strict = true;
   compact = true;
@@ -103,8 +103,7 @@ let
         ${if compact then "--compact" else ""} \
         --commit-frequency ${commitFrequency} \
         --workers ${precomputeWorkers} \
-        --recess ${recess} ${if limit != "0" then "--limit ${limit}" else ""}
-    ''
+        --recess ${recess} ${if limit != "0" then "--limit ${limit}" else ""}'' # no newline here!
   ) purposes;
 
 in
@@ -112,7 +111,7 @@ pkgs.writeScript "quick-run" ''
   #!/usr/bin/env bash
 
   precompute() {
-    ${lib.strings.concatStringsSep "\n" precomputeLoop}
+    ${lib.strings.concatStringsSep "&& \\\n  " precomputeLoop}
   }
 
   train() {

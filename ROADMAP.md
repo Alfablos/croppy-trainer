@@ -19,3 +19,4 @@
     3. variant 3: other...
     
     and then (pydantic?) ConfigSource.from_str(s). If is isPath and Path.exists() parse YAML
+15. Make crawk multithreaded

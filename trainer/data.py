@@ -70,7 +70,6 @@ class SmartDocDataset(Dataset):
         # Note: reading back 'corners_recess_percentage', which was stored via struct
         # corners_recess_percentage = struct.unpack('f', transaction.get("my_key".encode("ascii")))[0]
 
-
         env = self._get_or_init_env()
         with env.begin(write=False) as transaction:
             image: NDArray = pickle.loads(
@@ -128,7 +127,9 @@ def get_transforms(weights, device: Device, train=False):
             return config.val_gpu_transforms(t)
 
 
-def current_train_transforms(input_path: str | tuple[str, int], output_path: str | None):
+def current_train_transforms(
+    input_path: str | tuple[str, int], output_path: str | None
+):
     if isinstance(input_path, str):
         img_np = cv2.imread(input_path, cv2.IMREAD_COLOR_BGR)
         img_np = cv2.cvtColor(img_np, cv2.COLOR_BGR2RGB)
@@ -179,7 +180,8 @@ def current_train_transforms(input_path: str | tuple[str, int], output_path: str
 
 if __name__ == "__main__":
     current_train_transforms(
-        ('./hires_compact/training_data/data_resnet_training_1000x1024x768_compacted.lmdb',
+        (
+            "./hires_compact/training_data/data_resnet_training_1000x1024x768_compacted.lmdb",
             60,
         ),  # input_path='/home/antonio/Downloads/2026-01-24-15-52-49-829.jpg',
         output_path=None,

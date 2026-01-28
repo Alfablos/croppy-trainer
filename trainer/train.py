@@ -1,5 +1,6 @@
 import cv2
 import torchvision.tv_tensors
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchvision import tv_tensors
 
 import common
@@ -37,7 +38,7 @@ class CroppyNet(
         images_height: int,
         images_width: int,
         dropout: float,
-        learning_rate: float
+        learning_rate: float,
     ):
         super().__init__()
 
@@ -59,7 +60,9 @@ class CroppyNet(
             # output = 8 because we have 8 coordinates:
             # the document page has 8 coordinates, not 2 like in bounding boxes of object detection because the camera won't be EXACTLY orthogonal)
             Linear(in_features=128, out_features=8),
-            Sigmoid(),  # between 0 and 1 for each coordinate
+            # pure linear regression, no sigmoid, if corners fall outside the image
+            # handle via software values like x > width
+            # Sigmoid(),  # between 0 and 1 for each coordinate
         )
         self.weights = weights
 
@@ -97,7 +100,7 @@ def validation_data(
     verbose: bool,
     hard: bool,
     debug_fn: Callable | None,
-    visual_debug_path: str
+    visual_debug_path: str,
 ) -> float:
     model.eval()
     val_loss = 0.0
@@ -119,19 +122,18 @@ def validation_data(
         images, labels = gpu_transforms(images.to("cuda"), labels_wrapped)
         new_h, new_w = images.shape[-2:]
         labels = labels / torch.tensor([new_w, new_h], device="cuda")
-        labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
+        # labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
 
         preds = model(images)
         val_loss += loss_fn(preds, labels).item()
-        
+
         # only dump debug images on last minibatch
         if debug_fn and batch_n == len(loader):
             end = min(10, len(images))
             # debug_fn(purpose=Purpose.VALIDATION, i=images, l=labels, p=preds)
             img_dict = debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end])
             for fname, data in img_dict.items():
-                cv2.imwrite(visual_debug_path + f'/validation_{fname}', data)
-
+                cv2.imwrite(visual_debug_path + f"/validation_{fname}", data)
 
     return val_loss / len(loader)
 
@@ -139,7 +141,7 @@ def validation_data(
 def train(
     model: CroppyNet,
     train_dataloader: DataLoader,
-    validation_dataloader: DataLoader | None,
+    validation_dataloader: DataLoader,
     epochs: int,
     out_dir: str,
     train_len: int,  # only to append the information to filename and specs
@@ -149,11 +151,6 @@ def train(
     verbose=False,
     progress=False,
 ):
-    if train_dataloader is None:
-        raise ValueError("A `train_dataloader` must be specified!")
-    if epochs is None:
-        raise ValueError("A value for `epochs` must be specified!")
-
     out_dir = out_dir.rstrip("/")
     if with_tensorboard:
         tensorboard_logdir = out_dir + "/runs"
@@ -187,16 +184,19 @@ def train(
     else:
         epochs_iter = range(epochs)
 
-    visual_debug_training_subdir = '/visual_debug_training'
-    visual_debug_validation_subdir = '/visual_debug_validation'
-    visual_debug_training_path = f'{out_dir}' + visual_debug_training_subdir
-    visual_debug_validation_path = f'{out_dir}' + visual_debug_validation_subdir
+    visual_debug_training_subdir = "/visual_debug_training"
+    visual_debug_validation_subdir = "/visual_debug_validation"
+    visual_debug_training_path = f"{out_dir}" + visual_debug_training_subdir
+    visual_debug_validation_path = f"{out_dir}" + visual_debug_validation_subdir
     Path(visual_debug_training_path).mkdir(parents=True, exist_ok=True)
     Path(visual_debug_validation_path).mkdir(parents=True, exist_ok=True)
 
     # THE MODEL MUST BE MOVED TO cTHE RIGHT DEVICE BEFORE INITIALIZING THE OPTIMIZER
     model = model.to(model.target_device.value)
     optimizer = Adam(model.parameters(), lr=model.learning_rate)
+    # implementing learning rate decay!
+    # soft for now
+    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.1, patience=2)
 
     for epoch in epochs_iter:
         model.train()
@@ -205,7 +205,6 @@ def train(
             print(f"Starting epoch {epoch + 1}.")
 
         cumulative_train_loss = 0.0
-
 
         debug_fn = (
             lambda i, l, p: utils.dump_training_batch(
@@ -250,7 +249,8 @@ def train(
                     images, labels = gpu_transforms(images.to("cuda"), labels_wrapped)
                 new_h, new_w = images.shape[-2:]
                 labels = labels / torch.tensor([new_w, new_h], device="cuda")
-                labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
+                # No camping, situations like x > w will be handled post-prediction
+                # labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
 
                 optimizer.zero_grad()
                 preds = model(images)
@@ -266,9 +266,13 @@ def train(
                 if debug and epoch % debug == 0 and batch_n == len(train_dataloader):
                     end = min(10, len(images))
                     # debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end], purpose=Purpose.TRAINING)
-                    img_dict = debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end])
+                    img_dict = debug_fn(
+                        i=images[0:end], l=labels[0:end], p=preds[0:end]
+                    )
                     for fname, data in img_dict.items():
-                        cv2.imwrite(f"{visual_debug_training_path}/training_{fname}", data)
+                        cv2.imwrite(
+                            f"{visual_debug_training_path}/training_{fname}", data
+                        )
 
             if progress:
                 sub_bar.close()
@@ -276,32 +280,34 @@ def train(
             print("Aborting due to user interruption...")
             break
 
-        if validation_dataloader:
-            try:
-                epoch_val_loss = validation_data(
-                    model=model,
-                    loader=validation_dataloader,
-                    loss_fn=model.loss_fn,
-                    device=model.target_device,
-                    verbose=verbose,
-                    hard=hard_validation,
-                    debug_fn=debug_fn if debug and epoch % debug == 0 else None,
-                    visual_debug_path=visual_debug_validation_path,
-                )
-            except KeyboardInterrupt:
-                print("Aborting due to user interruption...")
-                break
+        try:
+            epoch_val_loss = validation_data(
+                model=model,
+                loader=validation_dataloader,
+                loss_fn=model.loss_fn,
+                device=model.target_device,
+                verbose=verbose,
+                hard=hard_validation,
+                debug_fn=debug_fn if debug and epoch % debug == 0 else None,
+                visual_debug_path=visual_debug_validation_path,
+            )
+            scheduler.step(epoch_val_loss)
+        except KeyboardInterrupt:
+            print("Aborting due to user interruption...")
+            break
 
         epoch_train_loss = cumulative_train_loss / len(train_dataloader)
         if verbose:
-            if validation_dataloader is not None:
-                print(
-                    f"Epoch {epoch + 1}: train_loss={epoch_train_loss}, val_loss={epoch_val_loss}"
-                )
-            else:
-                print(f"Epoch {epoch + 1}: train_loss={epoch_train_loss}")
+            print(
+                f"Epoch {epoch + 1}: train_loss={epoch_train_loss}, val_loss={epoch_val_loss}"
+            )
+        else:
+            print(f"Epoch {epoch + 1}: train_loss={epoch_train_loss}")
 
         if with_tensorboard:
+            s_writer.add_scalar(
+                tag=f"LR_epoch{run_name}", scalar_value=optimizer.param_groups[0]["lr"]
+            )
             board_payload = {"train": epoch_train_loss}
             if validation_dataloader:
                 board_payload["validation"] = epoch_val_loss
