@@ -13,3 +13,9 @@
 11. Write a walkthrough
 12. handle several ratios (4:3, 16:9)
 13. Tensorboard: display debug images
+14. The number of parameters for training has become too high. Change approach and use a YAML config file (no more cli). In the code use a config factory: `class ConfigSource(Enum)`:
+    1. variant 1: YAML(path or env variable)
+    2. variant 2: AWS_PARAMETER_STORE(string_to_parse or env variable to get info)
+    3. variant 3: other...
+    
+    and then (pydantic?) ConfigSource.from_str(s). If is isPath and Path.exists() parse YAML
