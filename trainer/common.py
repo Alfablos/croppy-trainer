@@ -119,9 +119,9 @@ class Precision(Enum):
 
 def loss_from_str(s: str, **loss_opts):
     s = s.lower()
-    if s in ["l1", "l1loss", "l1_loss"]:
+    if s in ["mae", "maeloss", "mae_loss", "l1", "l1loss", "l1_loss"]:
         return L1Loss(loss_opts)
-    elif s in ["mse", "mseloss", "mse_loss"]:
+    elif s in ["mse", "mseloss", "mse_loss", "l2", "l2loss", "l2_loss"]:
         return MSELoss(loss_opts)
     else:
         raise UnimplementedError
