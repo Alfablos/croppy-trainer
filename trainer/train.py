@@ -1,3 +1,4 @@
+from sympy import Li
 import cv2
 import torchvision.tv_tensors
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -53,16 +54,21 @@ class CroppyNet(
         self.model = visionmodels.resnet18(weights=weights, progress=True)
         self.model.fc = Sequential(
             Dropout(p=dropout),
-            # Adding not just one final layer but two, to give the model
+            # Adding not just one final layer but three, to give the model
             # enough parameters since data will be JPEG with degraded quality
-            Linear(in_features=512, out_features=128),  # adds non-linearity
+            # and rotation!
+            Linear(in_features=512, out_features=256),  # adds non-linearity
+            ReLU(),
+            Linear(in_features=256, out_features=64),
             ReLU(),
             # output = 8 because we have 8 coordinates:
             # the document page has 8 coordinates, not 2 like in bounding boxes of object detection because the camera won't be EXACTLY orthogonal)
-            Linear(in_features=128, out_features=8),
+            Linear(in_features=64, out_features=8),
             # pure linear regression, no sigmoid, if corners fall outside the image
             # handle via software values like x > width
             # Sigmoid(),  # between 0 and 1 for each coordinate
+            # Sigmoid meaning: tell me exactly where I need to crop
+            # Linear meaning: tell me where the corners should be, I'll take it from here
         )
         self.weights = weights
 
@@ -121,7 +127,7 @@ def validation_data(
 
         images, labels = gpu_transforms(images.to("cuda"), labels_wrapped)
         new_h, new_w = images.shape[-2:]
-        labels = labels / torch.tensor([new_w, new_h], device="cuda")
+        labels = (labels / torch.tensor([new_w, new_h], device="cuda")).flatten(start_dim=1)
         # labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
 
         preds = model(images)
@@ -193,9 +199,11 @@ def train(
 
     # THE MODEL MUST BE MOVED TO cTHE RIGHT DEVICE BEFORE INITIALIZING THE OPTIMIZER
     model = model.to(model.target_device.value)
-    optimizer = Adam(model.parameters(), lr=model.learning_rate)
+    # TODO: integrate weight_decay in the CLI or config file
+    optimizer = Adam(model.parameters(), lr=model.learning_rate, weight_decay=1e-4)
     # implementing learning rate decay!
     # soft for now
+    # TODO: integrate in the CLI or config file
     scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.1, patience=2)
 
     for epoch in epochs_iter:
@@ -248,12 +256,15 @@ def train(
                     ).to("cuda")
                     images, labels = gpu_transforms(images.to("cuda"), labels_wrapped)
                 new_h, new_w = images.shape[-2:]
-                labels = labels / torch.tensor([new_w, new_h], device="cuda")
+                labels = (labels / torch.tensor([new_w, new_h], device="cuda")).flatten(start_dim=1)
                 # No camping, situations like x > w will be handled post-prediction
                 # labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
 
+
                 optimizer.zero_grad()
                 preds = model(images)
+                # print(f"Preds shape: {preds.shape}")
+                # print(f"Labels shape: {labels.shape}")
                 loss = model.loss_fn(preds, labels)
                 loss.backward()
                 optimizer.step()
@@ -262,8 +273,8 @@ def train(
                 if progress:
                     sub_bar.update(1)
 
-                # debug dump only on last minibatch of each epoch if epoch % debug == 0
-                if debug and epoch % debug == 0 and batch_n == len(train_dataloader):
+                # debug dump only on LAST minibatch of each epoch if epoch % debug == 0
+                if debug and (epoch + 1) % debug == 0 and batch_n == len(train_dataloader):
                     end = min(10, len(images))
                     # debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end], purpose=Purpose.TRAINING)
                     img_dict = debug_fn(
@@ -288,7 +299,7 @@ def train(
                 device=model.target_device,
                 verbose=verbose,
                 hard=hard_validation,
-                debug_fn=debug_fn if debug and epoch % debug == 0 else None,
+                debug_fn=debug_fn if debug and (epoch + 1) % debug == 0 else None,
                 visual_debug_path=visual_debug_validation_path,
             )
             scheduler.step(epoch_val_loss)
@@ -301,12 +312,11 @@ def train(
             print(
                 f"Epoch {epoch + 1}: train_loss={epoch_train_loss}, val_loss={epoch_val_loss}"
             )
-        else:
-            print(f"Epoch {epoch + 1}: train_loss={epoch_train_loss}")
 
         if with_tensorboard:
             s_writer.add_scalar(
-                tag=f"LR_epoch{run_name}", scalar_value=optimizer.param_groups[0]["lr"]
+                tag=f"LR_epoch{run_name}", scalar_value=optimizer.param_groups[0]["lr"],
+                global_step=epoch + 1
             )
             board_payload = {"train": epoch_train_loss}
             if validation_dataloader:
