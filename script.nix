@@ -69,14 +69,14 @@ let
     + "x${h}x${w}"
     + (if compact then "_compacted" else "")
     + ".lmdb";
-  loss_function = "mse";
-  learningRate = "0.001";
-  dropout = "0.1";
-  epochs = "10";
+  loss_function = "mae";
+  learningRate = "0.0001";
+  dropout = "0.25";
+  epochs = "30";
   workers = toString (cpuCount / 2);
-  batchSize = "32";
+  batchSize = "128";
   device = "gpu";
-  debug = "1";
+  debug = "2";
   tensorboard = true;
   hardValidation = true;
 
@@ -158,10 +158,10 @@ pkgs.writeScript "quick-run" ''
       fi
       
       if [[ -d $precompute_output_dir ]]; then
-        echo "Running precompute before training."
         train
       else
         echo "Running FULL"
+        echo "Running precompute before training."
         precompute
         train
       fi
