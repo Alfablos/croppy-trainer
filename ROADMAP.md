@@ -19,4 +19,5 @@
     3. variant 3: other...
     
     and then (pydantic?) ConfigSource.from_str(s). If is isPath and Path.exists() parse YAML
-15. Make crawk multithreaded
+15. ~~Make crawk multithreaded~~
+16. ~~Store original coordinates, only compute recess at runtime! => the user already has the option to define --recess (default=0)~~
