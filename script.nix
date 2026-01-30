@@ -29,13 +29,17 @@ let
     "./croppy_"
     + (if compact then "compact_" else "")
     + (if limit != "0" then limit else datasetLengths.training)
+    + "x"
+    + h
+    + "x"
+    + w
     + "_recess"
     + recess;
-  h = "512";
-  w = "384";
+  h = "1024";
+  w = "768";
   iext = "_in.png";
   lext = "_gt.png";
-  recess = "0.005";
+  recess = "0";
   computeCorners = true;
   strict = true;
   compact = true;
@@ -43,7 +47,7 @@ let
   precomputeWorkers = toString cpuCount;
   limit = "0";
 
-  # Train variables
+  # Training variables
   trainingOutputDir =
     "croppy_"
     + (if limit == "0" then datasetLengths.training else limit)
@@ -76,7 +80,7 @@ let
   dropout = "0.25";
   epochs = "30";
   workers = toString (cpuCount / 2);
-  batchSize = "128";
+  batchSize = "32";
   device = "gpu";
   debug = "2";
   tensorboard = true;
