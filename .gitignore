@@ -7,3 +7,5 @@ __pycache__/
 *.lmdb
 *.png
 *.jpg
+*.tar
+*.tar.*
