@@ -14,7 +14,7 @@ from typing import Callable
 
 import torch
 import torch.nn as nn
-from torch.nn import L1Loss, MSELoss
+from torch.nn import L1Loss, MSELoss, Flatten
 from torch.nn import Sequential, Sigmoid, Linear, ReLU, Dropout
 from torch.optim import Adam, Optimizer
 import torchvision.models as visionmodels
@@ -50,29 +50,54 @@ class CroppyNet(
         self.images_width = images_width
         self.dropout = dropout
         self.learning_rate = learning_rate
-        self.model = visionmodels.resnet18(weights=weights, progress=True)
-        self.model.fc = Sequential(
-            Dropout(p=dropout),
-            # Adding not just one final layer but three, to give the model
-            # enough parameters since data will be JPEG with degraded quality
-            # and rotation!
-            Linear(in_features=512, out_features=256),  # adds non-linearity
+        self.weights = weights
+
+        # test: remove the pooling layer
+        # self.model = visionmodels.resnet18(weights=weights, progress=True)
+        self.model = visionmodels.resnet18(weights=weights)
+        self.model = nn.Sequential(*list(self.model.children())[:-2]) # exclude pooling layer and fully connected
+
+        # Resnet downsamples x32
+        if (images_height % 32 != 0) or (images_width % 32 != 0):
+            if architecture == Architecture.RESNET:
+                raise ValueError(f"Resnet requires images height and width to be divisible by 32! Current values: h = {images_height}, w = {images_width}")
+        h_for_layer = images_height / 32
+        w_for_layer = images_width / 32
+        # 389120 neurons for 1024x768
+        flat_size = int(h_for_layer * w_for_layer * 512) # (512 channels is the number of channels the output has before entering in the, replaced, maxpool layer)
+        self.fc = Sequential(
+            Flatten(),
+            Linear(in_features=flat_size, out_features=512), # replaces maxpool
+            ReLU(),
+            Linear(in_features=512, out_features=256),
             ReLU(),
             Linear(in_features=256, out_features=64),
             ReLU(),
-            # output = 8 because we have 8 coordinates:
-            # the document page has 8 coordinates, not 2 like in bounding boxes of object detection because the camera won't be EXACTLY orthogonal)
-            Linear(in_features=64, out_features=8),
-            # pure linear regression, no sigmoid, if corners fall outside the image
-            # handle via software values like x > width
-            # Sigmoid(),  # between 0 and 1 for each coordinate
-            # Sigmoid meaning: tell me exactly where I need to crop
-            # Linear meaning: tell me where the corners should be, I'll take it from here
+            Linear(in_features=64, out_features=8) # The coordinates (finally!)
         )
-        self.weights = weights
+
+        # self.model.fc = Sequential(
+        #     Dropout(p=dropout),
+        #     # Adding not just one final layer but three, to give the model
+        #     # enough parameters since data will be JPEG with degraded quality
+        #     # and rotation!
+        #     Linear(in_features=512, out_features=256),  # adds non-linearity
+        #     ReLU(),
+        #     Linear(in_features=256, out_features=64),
+        #     ReLU(),
+        #     # output = 8 because we have 8 coordinates:
+        #     # the document page has 8 coordinates, not 2 like in bounding boxes of object detection because the camera won't be EXACTLY orthogonal)
+        #     Linear(in_features=64, out_features=8),
+        #     # pure linear regression, no sigmoid, if corners fall outside the image
+        #     # handle via software values like x > width
+        #     # Sigmoid(),  # between 0 and 1 for each coordinate
+        #     # Sigmoid meaning: tell me exactly where I need to crop
+        #     # Linear meaning: tell me where the corners should be, I'll take it from here
+        # )
 
     def forward(self, x):
-        return self.model(x)
+        x = self.model(x)
+        return self.fc(x)
 
     def loss_function(self):
         if isinstance(self.loss_fn, L1Loss):
