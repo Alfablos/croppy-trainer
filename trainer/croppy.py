@@ -58,7 +58,7 @@ if __name__ == "__main__":
         "--reduction",
         "-R",
         required=False,
-        default=0.05,
+        default=0.0,
         help="how much the corners should move towards the center in the labels."
         + "Helps compensate the model error, preventing background pixels to sneak in the final image.",
     )
