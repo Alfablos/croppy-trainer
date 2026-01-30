@@ -1,31 +1,22 @@
-import utils
-import cv2
-from numpy.typing import NDArray
-import lmdb
-from torch.distributed.checkpoint.planner import WriteItem
-import json
-from tensorboard.compat.tensorflow_stub.errors import UnimplementedError
-from pyexpat import model
-from sympy.functions.special.tests.test_error_functions import w
-from inference import predict, get_image_points, draw_box
-from time import sleep
 import os
-from multiprocessing import cpu_count
-import argparse
-from torch.nn import L1Loss
-from train import train, CroppyNet
-from torch.utils.data import DataLoader
-from data import SmartDocDataset, get_transforms
-import torch
-from architecture import Architecture
-from preprocessor import precompute
-from common import Precision, Device, Purpose, loss_from_str
 from pathlib import Path
-from crawler import crawl
+from time import sleep
 
-import torchvision.models as visionmodels
-from torchvision.transforms import v2 as transformsV2
+import cv2
+import lmdb
+from numpy.typing import NDArray
+from torch.utils.data import DataLoader
+
+import utils
+from architecture import Architecture
 from common import DEFAULT_WEIGHTS
+from common import Precision, Device, Purpose
+from crawler import crawl
+from data import SmartDocDataset
+from inference import predict, get_image_points, draw_box
+from loss import loss_from_str
+from preprocessor import precompute
+from train import train, CroppyNet
 
 
 def run_crawl(args):

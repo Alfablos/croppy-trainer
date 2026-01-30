@@ -57,6 +57,8 @@ let
     + learningRate
     + "_dropout-"
     + dropout
+    + "_loss-"
+    + loss_function
     + "_epochs-"
     + epochs
     + (if hardValidation then "_hardvalidation" else "")
@@ -69,7 +71,7 @@ let
     + "x${h}x${w}"
     + (if compact then "_compacted" else "")
     + ".lmdb";
-  loss_function = "mae";
+  loss_function = "invariant_smooth_mae";
   learningRate = "0.0001";
   dropout = "0.25";
   epochs = "30";

@@ -1,6 +1,4 @@
-from sympy import Li
 import cv2
-import torchvision.tv_tensors
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchvision import tv_tensors
 
@@ -9,7 +7,7 @@ from tensorboard.compat.tensorflow_stub.errors import UnimplementedError
 from pathlib import Path
 import torch.distributed.optim.post_localSGD_optimizer
 import tqdm
-from common import Precision, loss_from_str, Purpose
+from loss import loss_from_str
 from architecture import Architecture
 from data import SmartDocDataset, get_transforms
 from typing import Callable
@@ -25,6 +23,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import utils
 from common import Device, DEFAULT_WEIGHTS
+from loss import PermutationInvariantLoss
 
 
 class CroppyNet(
@@ -78,8 +77,10 @@ class CroppyNet(
     def loss_function(self):
         if isinstance(self.loss_fn, L1Loss):
             return "L1Loss"
-        if isinstance(self.loss_fn, MSELoss):
+        elif isinstance(self.loss_fn, MSELoss):
             return "MSELoss"
+        elif isinstance(self.loss_fn, PermutationInvariantLoss):
+            return "Invariant" + self.loss_fn.inner_to_str()
         else:
             raise UnimplementedError
 
@@ -127,6 +128,7 @@ def validation_data(
 
         images, labels = gpu_transforms(images.to("cuda"), labels_wrapped)
         new_h, new_w = images.shape[-2:]
+        labels = labels.as_subclass(torch.Tensor)
         labels = (labels / torch.tensor([new_w, new_h], device="cuda")).flatten(start_dim=1)
         # labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
 
@@ -256,10 +258,12 @@ def train(
                     ).to("cuda")
                     images, labels = gpu_transforms(images.to("cuda"), labels_wrapped)
                 new_h, new_w = images.shape[-2:]
+                # See https://docs.pytorch.org/vision/main/auto_examples/transforms/plot_tv_tensors.html#but-i-want-a-tvtensor-back
+                # normalization may be ineffective on Keypoints, need to unwrap the underlying tensor
+                labels = labels.as_subclass(torch.Tensor)
                 labels = (labels / torch.tensor([new_w, new_h], device="cuda")).flatten(start_dim=1)
-                # No camping, situations like x > w will be handled post-prediction
+                # No clamping, situations like x > w will be handled post-prediction
                 # labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
-
 
                 optimizer.zero_grad()
                 preds = model(images)
