@@ -158,7 +158,6 @@ def run_train(args):
 
 def run_predict(args):
     config = utils.load_checkpoint(args.config, train=False)
-    print(config)
     model = CroppyNet.from_trained_config(config, Device.from_str(args.device))
 
     # load image and convert to RGB from BGR

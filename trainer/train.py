@@ -93,6 +93,8 @@ class CroppyNet(
             target_device=device,
             images_height=config["images_height"],
             images_width=config["images_width"],
+            dropout=config["dropout"],
+            learning_rate=config["current_learning_rate"]   # use current or target??
         )
         model.load_state_dict(config["model_state_dict"])
         return model.to(device.value)  # adds a validation step
@@ -345,6 +347,9 @@ def train(
             "optimizer_state_dict": optimizer.state_dict(),
             "train_loss": epoch_train_loss,
             "val_loss": epoch_val_loss,
+            "dropout": model.dropout,
+            "initial_learning_rate": model.learning_rate,
+            "current_learning_rate": optimizer.param_groups[0]["lr"]
         }
         torch.save(checkpoint, checkpoint_file)
     if with_tensorboard:

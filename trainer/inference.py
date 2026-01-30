@@ -28,8 +28,7 @@ def predict(
         ]
     )
 
-    img_tensor = transformsV2.ToImage()(image)
-    print(img_tensor.shape)
+    img_tensor, _ = transformsV2.ToImage()(image)
     inf_input: torch.Tensor = transforms(img_tensor)
 
     input_as_batch = inf_input.unsqueeze(0).to(
