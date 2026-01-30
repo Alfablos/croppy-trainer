@@ -64,6 +64,8 @@ def run_precompute(args):
             progress=args.progress,
             limit=args.limit,
         )
+    else:
+        print(f"Found data map file {data_map}. Skipping crawler.")
 
     precompute(
         architecture=Architecture.from_str(args.architecture),
