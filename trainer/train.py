@@ -233,7 +233,7 @@ def train(
     # implementing learning rate decay!
     # soft for now
     # TODO: integrate in the CLI or config file
-    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.1, patience=2)
+    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.1, patience=4)
 
     for epoch in epochs_iter:
         model.train()
