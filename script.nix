@@ -45,7 +45,7 @@ let
   compact = true;
   commitFrequency = "100";
   precomputeWorkers = toString cpuCount;
-  limit = "0";
+  limit = "40";
 
   # Training variables
   trainingOutputDir =
