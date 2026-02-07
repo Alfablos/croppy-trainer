@@ -36,7 +36,7 @@ import config
 
 
 class SmartDocDataset(Dataset):
-    supported_img_formats = ["png"]
+    supported_img_formats = ["png", 'jpg']
 
     def __init__(
         self,

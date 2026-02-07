@@ -78,6 +78,7 @@ class LMDBStore(DataStore):
         
         self.env = None
         self.transaction = None
+        self.img_size_set = False
         self.env_pid = None
         self.commitFrequency = 100 if write else None
                 
@@ -174,18 +175,39 @@ class LMDBStore(DataStore):
 
     def append(self, image: NDArray, label: NDArray):
         if not self._write:
-            ValueError("Store cannot write in read-only mode.")
+            raise ValueError("Store cannot write in read-only mode.")
         img = pickle.dumps(image)
         lab = pickle.dumps(label)
         count = self.len
         self.transaction = self._get_or_init_transaction()
+
+        # Making sure h and w are always set
+        if not self.img_size_set:
+            h, w = image.shape[:2]
+            print(f'Setting images height to {h} and weight to {w} once.')
+            self.transaction.put('h'.encode('ascii'), h.to_bytes(64, 'big'))
+            self.transaction.put('w'.encode('ascii'), w.to_bytes(64, 'big'))
+            self.img_size_set = True
+
         self.transaction.put(f"i{count}".encode('ascii'), img)
         self.transaction.put(f"l{count}".encode('ascii'), lab)
-        if self.commitFrequency and self.commitFrequency % count == 0:
+        if self.commitFrequency and count > 0 and count % self.commitFrequency == 0:
             self.transaction.commit()
+            self.transaction = self.env.begin(write=self._write)
         self.len += 1
         
     
+    def compact(self, dst_path: str):
+        if not self._write:
+            raise ValueError("Store cannot compact in read-only mode.")
+        
+        # Ensure metadata and data are committed before copying
+        self.transaction = self._get_or_init_transaction()
+        self.transaction.put('__len__'.encode('ascii'), self.len.to_bytes(64, 'big'))
+        self.transaction.commit()
+        self.env.copy(dst_path, compact=True)
+        self.transaction = self.env.begin(write=self._write)
+
     def close(self):
         self.__exit__(None, None, None)
 

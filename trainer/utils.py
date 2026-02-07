@@ -377,14 +377,15 @@ def lmdb_get_int(key: str, lmdb_path: str):
         if val is None:
             print("Not found.")
             exit(1)
-        print(int.from_bytes(val, "big"))
+        return int.from_bytes(val, "big")
 
 
 if __name__ == "__main__":
-    LMDB_PATH = "./hires_compact/training_data/data_resnet_training_1000x1024x768_compacted.lmdb"
+    LMDB_PATH = 'croppy_compact_40x1024x768_recess0/training_data/data_resnet_training_40x1024x768.lmdb'
 
-    inspect_dataset(
-        lmdb_path=LMDB_PATH, output_dir="./hires_dump/train", start_idx=0, count=20
-    )
+    # inspect_dataset(
+    #     lmdb_path=LMDB_PATH, output_dir="./lmdb_dumps/train", start_idx=0, count=40
+    # )
 
-    # lmdb_get_int('h', './hires_compact/training_data/data_resnet_training_22092x1024x768_compacted.lmdb')
+    h = lmdb_get_int('h', LMDB_PATH)
+    print(f'h: {h}')

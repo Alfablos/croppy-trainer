@@ -166,7 +166,7 @@ def run_predict(args):
     image = cv2.imread(args.path, cv2.IMREAD_COLOR)
     image: NDArray = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    resized_image: NDArray = Architecture.resize_image(
+    resized_image, original_shape = Architecture.resize_image(
         args.path,
         h=model.images_height,
         w=model.images_width,
