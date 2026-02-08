@@ -53,7 +53,7 @@ let
 
   # Training variables
   trainingOutputDir =
-    "croppy_"
+    "/workspace/croppy_"
     + (if limit == "0" then datasetLengths.training else limit)
     + "x"
     + h
@@ -84,7 +84,7 @@ let
   dropout = "0.25";
   epochs = "100";
   workers = toString (cpuCount / 2);
-  batchSize = "32";
+  batchSize = "256";
   device = "gpu";
   debug = "2";
   tensorboard = true;
