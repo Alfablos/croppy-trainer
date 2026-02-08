@@ -109,7 +109,7 @@ let
         ${if compact then "--compact" else ""} \
         --commit-frequency ${commitFrequency} \
         --workers ${precomputeWorkers} \
-        --recess ${recess} ${if limit != "0" then "--limit ${limit}" else ""}'' # no newline here!
+        --recess ${recess} ${if limit != "0" then "--limit ${limit}" else " "}'' # no newline here!
   ) purposes;
 
 in
@@ -137,6 +137,7 @@ pkgs.writeScript "quick-run" ''
       ${if progress then "--progress" else ""} \
       --device ${device} \
       ${if hardValidation then "--hard-validation" else ""} \
+      ${if limit != 0 then "--limit ${limit}" else ""} \
       --debug ${debug}
   }
 
