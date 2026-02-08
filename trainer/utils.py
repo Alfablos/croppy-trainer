@@ -125,8 +125,8 @@ def coords_from_segmentation_mask(
         tr = white_xy[np.argmin(topright_to_bottomleft_diagonal)]  # Smallest y - x
         br = white_xy[np.argmax(topleft_to_bottoright_diagonal)]  # Largest x + y
         bl = white_xy[np.argmax(topright_to_bottomleft_diagonal)]  # Largest y - x
-        # return np.array([tl, tr, br, bl], dtype=np.float32()).flatten()
-        coords = np.array([tl, tr, br, bl], dtype=np.float32()).flatten()
+        # return np.array([tl, tr, br, bl], dtype=np.float32).flatten()
+        coords = np.array([tl, tr, br, bl], dtype=np.float32).flatten()
 
     scaled_coords = scale_to_center(coords, scale_percentage)
     return scaled_coords

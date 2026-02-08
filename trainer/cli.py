@@ -91,7 +91,7 @@ def run_train(args):
     weights = DEFAULT_WEIGHTS
 
     # Retrieve height and width from the LMDB store
-    print(f"Opening LMDB store at {args.store_path}")
+    print(f"Opening store at {args.store_path}")
     with storage.new_store(args.store_path, write=False) as store:
         h = int(store.get_metadata('h'))
         w = int(store.get_metadata('w'))

@@ -107,7 +107,7 @@ def precompute(
     # It's ok to error if even if the db path does not exist,
     # compacted data must not be overwritten
     if compact_store:
-        compacted_db_path = db_path_noext + "_compacted." + DEFAULT_STORAGE_CLASS
+        compacted_db_path = db_path_noext + "_compacted" + "." + DEFAULT_STORAGE_CLASS
         if (
             os.path.exists(compacted_db_path)
             and not len(os.listdir(compacted_db_path)) == 0

@@ -56,7 +56,7 @@ def get_image_points(
         y = min(h, coords[c + 1] * h)
         image_points.append([x, y])
 
-    image_points = np.array(image_points, dtype=np.int32())
+    image_points = np.array(image_points, dtype=np.int32)
 
     return image_points
 

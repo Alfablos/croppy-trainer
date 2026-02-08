@@ -148,6 +148,7 @@ if __name__ == "__main__":
         "--strict",
         "-s",
         required=False,
+        default=True,
         action="store_true",
         help="Error if a single image fails to be processed.",
     )

@@ -14,6 +14,7 @@ let
     .${purpose};
 
   # General variables
+  runCmd = "python croppy.py";
   architecture = "resnet";
   datasetLengths = {
     training = "22092";
@@ -97,7 +98,7 @@ let
     in
     # ${if limit != "0" then "--limit ${limit} \\" else "\\"}
     ''
-      nix run . -- precompute \
+      ${runCmd} precompute \
         -o ${precomputeOutputDir} \
         --height ${h} \
         --width ${w} \
@@ -125,7 +126,7 @@ pkgs.writeScript "quick-run" ''
   }
 
   train() {
-    nix run . -- train \
+    ${runCmd} train \
       --out-dir ${trainingOutputDir}  \
       --db ${storePath "training"} \
       --valdb ${storePath "validation"} \

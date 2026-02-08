@@ -1,7 +1,7 @@
 import shutil
 import sys
 
-from traceback import print_last
+from pathlib import Path
 from typing import Any
 import numpy as np
 import os
@@ -149,10 +149,10 @@ class LMDBStore(DataStore):
         lab = self.transaction.get(lkey)
         if img is None: raise ValueError(f'Image {idx} not found in the store')
         if lab is None: raise ValueError(f'Label {idx} not found in the store')
-        image = np.frombuffer(img, dtype=np.uint8()).reshape(
+        image = np.frombuffer(img, dtype=np.uint8).reshape(
             self.metadata['h'], self.metadata['w'], 3
         )
-        label = np.frombuffer(lab, dtype=np.float32()).reshape(4, 2)
+        label = np.frombuffer(lab, dtype=np.float32).reshape(4, 2)
         return image, label
 
     def _get_or_init_transaction(self):
@@ -197,8 +197,8 @@ class LMDBStore(DataStore):
     def append(self, image: NDArray, label: NDArray):
         if not self._write:
             raise ValueError("Store cannot write in read-only mode.")
-        img = image.astype(np.uint8()).tobytes()
-        lab = label.astype(np.float32()).tobytes()
+        img = image.astype(np.uint8).tobytes()
+        lab = label.astype(np.float32).tobytes()
         count = self.len
         self.transaction = self._get_or_init_transaction()
 
@@ -312,10 +312,10 @@ class ArrowStore(DataStore):
         ibuf = self.table['image'][idx].as_py()
         lbuf = self.table['label'][idx].as_py()
 
-        image = np.frombuffer(ibuf, dtype=np.uint8()).reshape(
+        image = np.frombuffer(ibuf, dtype=np.uint8).reshape(
             int(self.metadata['h']), int(self.metadata['w']), 3
         )
-        label = np.frombuffer(lbuf, dtype=np.float32()).reshape(4, 2)
+        label = np.frombuffer(lbuf, dtype=np.float32).reshape(4, 2)
 
         return image, label
 
@@ -323,9 +323,9 @@ class ArrowStore(DataStore):
         if not self._write:
             raise ValueError("Store cannot write in read-only mode.")
         # turns (H, W, 3) into (1,) shape (faster than pickle)
-        img = image.astype(np.uint8()).tobytes()
+        img = image.astype(np.uint8).tobytes()
         # TODO: accomodate for mask labels, not just coordinates. Masks are same h x w but B/W (1 channel)
-        lab = label.astype(np.float32()).tobytes()
+        lab = label.astype(np.float32).tobytes()
         self.image_buffer.append(img)
         self.label_buffer.append(lab)
 
@@ -365,14 +365,15 @@ class ArrowStore(DataStore):
         return 'arrow'
 
 
-def new_store(path: str, write: bool, storage_class=DEFAULT_STORAGE_CLASS) -> DataStore:
-    c = storage_class.lower()
-    if c in ['arrow', 'arrowstore', 'arrow_store']:
+def new_store(path: str, write: bool) -> DataStore:
+    suffix = Path(path).suffix
+    suffix_lower = suffix.lower()
+    if suffix_lower == '.arrow':
         return ArrowStore(path=path, write=write)
-    elif c in ['lmdb', 'lmdbstore', 'lmdb_store']:
+    elif suffix_lower == '.lmdb':
         return LMDBStore(path, write)
     else:
-        raise NotImplementedError(f'Unknown storage class `{c}`.')
+        raise NotImplementedError(f'No storage classes configured to handle `{suffix}` files.')
 
 
 if __name__ == '__main__':

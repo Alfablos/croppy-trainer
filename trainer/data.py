@@ -165,10 +165,12 @@ if __name__ == "__main__":
     # )
 
     db_path = './croppy_22092x1024x768_recess0/training_data/data_resnet_training_22092x1024x768.arrow'
-    # idx = 5
-    # image, label = get_from_store(idx, db_path)
-    # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    # cv2.imwrite(f'{idx}.jpg', image)
-    # print(label)
-    print(get_store_len(db_path))
+    idx = 22091
+    image, label = get_from_store(idx, db_path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    cv2.imwrite(f'{idx}.jpg', image)
+    print(label)
+    print('Store __len__:', get_store_len(db_path))
+
+
 
