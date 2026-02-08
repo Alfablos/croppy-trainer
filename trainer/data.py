@@ -35,24 +35,29 @@ class SmartDocDataset(Dataset):
 
         self.precision = precision
         self.store_path = store_path
-        self.env = None  # opened on first __getitem__
+
+        with storage.new_store(store_path, write=False) as store:
+            self.len = len(store)
+        # cannot use self.store to aboid pytorch forking the pointer to an open store
+        self.store = None
         self.limit = limit
         self.train = train
 
     def __len__(self):
         if self.limit is not None:
-            return self.limit
+            # ensures that setting a limit of 100 on a 40 items DB
+            # doesn't tell pytorch that there actually are 100 items
+            return min(self.limit, self.len)
         else:
-            with storage.new_store(self.store_path, write=False) as store:
-                data_length = len(store)
-            return data_length
+            return self.len
 
     def __getitem__(self, i):
-        # Note: reading back 'corners_recess_percentage', which was stored via struct
-        # corners_recess_percentage = struct.unpack('f', transaction.get("my_key".encode("ascii")))[0]
+        # self.store will stay around as long as the datastore instance is around
+        # __getitem__ is called after pytorch forks (if num_workers > 0)
+        if self.store is None:
+            self.store = storage.new_store(self.store_path, write=False).__enter__()
 
-        with storage.new_store(self.store_path, write=False) as store:
-            image, label = store.get(i)  # shape = (h, w, 3)
+        image, label = self.store.get(i)  # shape = (h, w, 3)
         # Tensorflow needs the underlying numpy array to be writable,
         # while data coming directly from arrow and LMDB is memory-mapped and immutable
         # copy creates a writable copy to system RAM
@@ -143,6 +148,12 @@ def get_from_store(idx: int, path: str, storage_class=DEFAULT_STORAGE_CLASS):
         image, label = store.get(idx)
     return image, label
 
+def get_store_len(store_path: str):
+    with storage.new_store(store_path, write=False) as store:
+        data_length = len(store)
+    return data_length
+
+
 
 if __name__ == "__main__":
     # current_train_transforms(
@@ -153,10 +164,11 @@ if __name__ == "__main__":
     #     output_path=None,
     # )
 
-    db_path = 'croppy_22092x1024x768_recess0/training_data/data_resnet_training_22092x1024x768.arrow'
-    idx = 5
-    image, label = get_from_store(idx, db_path)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    cv2.imwrite(f'{idx}.jpg', image)
-    print(label)
+    db_path = './croppy_22092x1024x768_recess0/training_data/data_resnet_training_22092x1024x768.arrow'
+    # idx = 5
+    # image, label = get_from_store(idx, db_path)
+    # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # cv2.imwrite(f'{idx}.jpg', image)
+    # print(label)
+    print(get_store_len(db_path))
 

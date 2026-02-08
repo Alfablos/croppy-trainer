@@ -97,6 +97,7 @@ def run_train(args):
         w = int(store.get_metadata('w'))
 
     print(f"Setting up training dataset...")
+
     resnet_train_ds = SmartDocDataset(
         store_path=args.store_path,
         architecture=Architecture.from_str(args.architecture),
