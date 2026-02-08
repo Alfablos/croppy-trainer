@@ -1,4 +1,7 @@
+import shutil
 import sys
+
+from traceback import print_last
 from typing import Any
 import numpy as np
 import os
@@ -8,56 +11,67 @@ import lmdb
 from abc import ABCMeta, abstractmethod
 from numpy.typing import NDArray
 
+from common import DEFAULT_STORAGE_CLASS
+
 
 class DataStore(metaclass=ABCMeta):
     """
     A storage layer with different backends
     """
+
     def __subclasshook__(cls, subclass):
         return (
-            hasattr(subclass, '__init__') and callable(subclass.__init__) and
-            hasattr(subclass, '__enter__') and callable(subclass.__enter__) and
-            hasattr(subclass, '__exit__') and callable(subclass.__exit__) and
-            hasattr(subclass, '__len__') and callable(subclass.__len__) and
-            hasattr(subclass, 'get') and callable(subclass.get) and
-            hasattr(subclass, 'append') and callable(subclass.append) and
-            hasattr(subclass, 'set_metadata') and callable(subclass.set_metadata) and
-            hasattr(subclass, 'get_metadata') and callable(subclass.get_metadata)            
-            or NotImplemented
+                hasattr(subclass, '__init__') and callable(subclass.__init__) and
+                hasattr(subclass, '__enter__') and callable(subclass.__enter__) and
+                hasattr(subclass, '__exit__') and callable(subclass.__exit__) and
+                hasattr(subclass, '__len__') and callable(subclass.__len__) and
+                hasattr(subclass, 'get') and callable(subclass.get) and
+                hasattr(subclass, 'append') and callable(subclass.append) and
+                hasattr(subclass, 'set_metadata') and callable(subclass.set_metadata) and
+                hasattr(subclass, 'get_metadata') and callable(subclass.get_metadata) and
+                hasattr(subclass, 'compact') and callable(subclass.compact)
+                or NotImplemented
         )
 
     @abstractmethod
     def __init__(self, path: str, write: bool):
         pass
-    
+
     @abstractmethod
     def __enter__(self):
         pass
-    
+
     @abstractmethod
     def __exit__(self, exc_type, exc_value, exc_traceback):
         pass
-    
+
     @abstractmethod
     def __len__(self):
         pass
-    
+
     @abstractmethod
     def get(self, idx: int) -> tuple[NDArray, NDArray]:
         pass
-    
+
     @abstractmethod
     def append(self, image: NDArray, label: NDArray):
         pass
-    
+
     @abstractmethod
-    def set_metadata(self, key: str, value: int | float | str):
+    def set_metadata(self, key: str, value: str):
         pass
-    
+
     @abstractmethod
     def get_metadata(self, key: str) -> Any:
         pass
 
+    @abstractmethod
+    def compact(self, dst_path: str):
+        pass
+
+    @abstractmethod
+    def storage_class(self) -> str:
+        pass
 
 
 class LMDBStore(DataStore):
@@ -65,28 +79,28 @@ class LMDBStore(DataStore):
         self._path = path
         self.path_exists = os.path.exists(self._path)
         self._write = write
-        
+
         self.len = 0
         self.metadata = dict()
         self.metadata['size'] = None
-        
+
         self.env = None
         self.transaction = None
         self.img_size_set = False
         self.env_pid = None
         self.commitFrequency = 100 if write else None
-                
-        
+
     def __enter__(self):
         if self._write and self.metadata['size'] is None and not self.path_exists:
             raise ValueError("To create a new store you need to set a size in metadata")
 
         if self._write and (self.metadata.get('h') is None or self.metadata.get('w') is None):
-            raise ValueError('Refusing to open LMDB store: metadata must contain "h" and "w", set them with `set_metadata(...)` and try again.')
+            raise ValueError(
+                'Refusing to open LMDB store: metadata must contain "h" and "w", set them with `set_metadata(...)` and try again.')
 
         self.env = self._get_or_init_env()
         self.transaction = self._get_or_init_transaction()
-        
+
         length_bytes = self.transaction.get('__len__'.encode('utf-8'))
         if length_bytes:
             self.len = int.from_bytes(length_bytes, 'big')
@@ -100,7 +114,7 @@ class LMDBStore(DataStore):
         if h:
             self.metadata['w'] = int(w)
         return self
-    
+
     def __exit__(self, exc_type, exc_value, exc_traceback):
         if self.transaction:
             if exc_type:
@@ -117,17 +131,17 @@ class LMDBStore(DataStore):
         if self.env and self._write:
             self.env.sync()
         self.env.close()
-        
+
     def set_metadata(self, key: str, value: int | float | str):
         self.metadata[key] = value
-        
+
     def get_metadata(self, key: str):
         return self.metadata.get(key)
-        
+
     def get(self, idx: int) -> tuple[NDArray, NDArray]:
         if idx < 0 or idx >= self.len:
             raise IndexError(f"Index {idx} out of bounds for length {self.len}")
-        
+
         ikey = f'i{idx}'.encode('utf-8')
         lkey = f'l{idx}'.encode('utf-8')
         self.transaction = self._get_or_init_transaction()
@@ -140,13 +154,12 @@ class LMDBStore(DataStore):
         )
         label = np.frombuffer(lab, dtype=np.float32()).reshape(4, 2)
         return image, label
-        
+
     def _get_or_init_transaction(self):
         if self.transaction is None:
             self.env = self._get_or_init_env()
             self.transaction = self.env.begin(write=self._write)
         return self.transaction
-        
 
     def _get_or_init_env(self):
         if self.env is None or (self.env_pid and self.env_pid != os.getpid()):
@@ -160,9 +173,9 @@ class LMDBStore(DataStore):
                 map_size = 0
             else:
                 # Open with max virtual size
-                is_64bit = sys.maxsize > 2**32
+                is_64bit = sys.maxsize > 2 ** 32
                 map_size = 1099511627776 if is_64bit else 104857600
-                
+
             self.env = lmdb.open(
                 self._path,
                 map_size=map_size,
@@ -174,7 +187,6 @@ class LMDBStore(DataStore):
             )
             self.env_pid = os.getpid()
         return self.env
-    
 
     def __len__(self):
         return self.len
@@ -196,12 +208,11 @@ class LMDBStore(DataStore):
             self.transaction.commit()
             self.transaction = self.env.begin(write=self._write)
         self.len += 1
-        
-    
+
     def compact(self, dst_path: str):
         if not self._write:
             raise ValueError("Store cannot compact in read-only mode.")
-        
+
         # Ensure metadata and data are committed before copying
         self.transaction = self._get_or_init_transaction()
         self.transaction.put('__len__'.encode('utf-8'), str(self.len).encode('utf-8'))
@@ -214,6 +225,8 @@ class LMDBStore(DataStore):
     def close(self):
         self.__exit__(None, None, None)
 
+    def storage_class(self):
+        return 'lmdb'
 
 
 class ArrowStore(DataStore):
@@ -243,12 +256,14 @@ class ArrowStore(DataStore):
     def __enter__(self):
         if self._write:
             if self.path_exists:
-                raise FileExistsError(f'The arrow store enforces immutability and data exists at {self._path}. Refusing to continue.')
+                raise FileExistsError(
+                    f'The arrow store enforces immutability and data exists at {self._path}. Refusing to continue.')
 
             meta = {
                 k.encode('utf-8'): v.encode('utf-8')
                 for k, v in self.metadata.items()
             }
+            self.schema = self.schema.with_metadata(meta)
             self.sink = pa.OSFile(self._path, 'wb')
             self.writer = pa.ipc.new_file(sink=self.sink, schema=self.schema, metadata=meta)
         else:
@@ -266,7 +281,8 @@ class ArrowStore(DataStore):
                 }
 
         if self.metadata.get('h') is None or self.metadata.get('w') is None:
-            raise ValueError('Refusing to open arrow store: metadata must contain "h" and "w", set them with `set_metadata(...)` and try again.')
+            raise ValueError(
+                'Refusing to open arrow store: metadata must contain "h" and "w", set them with `set_metadata(...)` and try again.')
 
         return self
 
@@ -280,7 +296,8 @@ class ArrowStore(DataStore):
             if self.sink:
                 self.sink.close()
         else:
-            self.reader.close()
+            # self.reader.close()
+            pass
 
     def __len__(self):
         if self._write:
@@ -296,7 +313,7 @@ class ArrowStore(DataStore):
         lbuf = self.table['label'][idx].as_py()
 
         image = np.frombuffer(ibuf, dtype=np.uint8()).reshape(
-            self.metadata['h'], self.metadata['w'], 3
+            int(self.metadata['h']), int(self.metadata['w']), 3
         )
         label = np.frombuffer(lbuf, dtype=np.float32()).reshape(4, 2)
 
@@ -317,8 +334,7 @@ class ArrowStore(DataStore):
 
         self.len += 1
 
-
-    def set_metadata(self, key: str, value: int | float | str):
+    def set_metadata(self, key: str, value: str):
         self.metadata[key] = value
 
     def get_metadata(self, key: str):
@@ -329,10 +345,10 @@ class ArrowStore(DataStore):
             return
 
         images = pa.array(self.image_buffer, type=pa.binary())
-        labels = pa.array(self.label_buffer, type=pa.list_(pa.float32(), 8))
+        labels = pa.array(self.label_buffer, type=pa.binary())
 
-        batch = pa.RecordBatch(
-            [images, labels],
+        batch = pa.RecordBatch.from_arrays(
+            arrays=[images, labels],
             schema=self.schema
         )
 
@@ -340,22 +356,34 @@ class ArrowStore(DataStore):
         self.image_buffer.clear()
         self.label_buffer.clear()
 
+    def compact(self, dst_path: str):
+        shutil.copytree(
+            self._path, dst_path, symlinks=True, dirs_exist_ok=False
+        )
+
+    def storage_class(self) -> str:
+        return 'arrow'
 
 
-
-def new_lmdb_store(path: str, write: bool) -> LMDBStore:
-    return LMDBStore(path, write)
+def new_store(path: str, write: bool, storage_class=DEFAULT_STORAGE_CLASS) -> DataStore:
+    c = storage_class.lower()
+    if c in ['arrow', 'arrowstore', 'arrow_store']:
+        return ArrowStore(path=path, write=write)
+    elif c in ['lmdb', 'lmdbstore', 'lmdb_store']:
+        return LMDBStore(path, write)
+    else:
+        raise NotImplementedError(f'Unknown storage class `{c}`.')
 
 
 if __name__ == '__main__':
     # store = new_lmdb_store('test.lmdb', write=True, metadata={'h': 100, 'w': 200, 'len:': 1})
     # store.put('example', 3)
     # store.close()
-    
+
     # reopen = new_lmdb_store('test.lmdb', write=False, metadata=None)
     # print(reopen.get('example', int))
     # reopen.close()
-    
+
     # write_store = new_lmdb_store('./test.lmdb', write=True)
     # write_store.set_metadata('corners_recess_percentage', 0.0)
     # write_store.set_metadata('size', 100 * 1024 * 1024)
@@ -376,5 +404,3 @@ if __name__ == '__main__':
     #     cv2.imwrite('test.jpg', img)
 
     store = ArrowStore('./arrow_test.arrow', write=True)
-
-    

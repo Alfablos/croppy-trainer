@@ -181,8 +181,8 @@ if __name__ == "__main__":
     precompute_cmd.set_defaults(func=run_precompute)
 
     ## Train ##
-    train_cmd.add_argument("--lmdb-path", "--db", required=True)
-    train_cmd.add_argument("--validation-lmdb-path", "--valdb", required=False)
+    train_cmd.add_argument("--store-path", "--store", "--db", required=True)
+    train_cmd.add_argument("--validation-store-path", "--valstore", "--valdb", required=False)
     train_cmd.add_argument("--architecture", "--arch", "-a", required=True)
     train_cmd.add_argument(
         "--learning-rate", "--lrate", "--lr", "-l", required=True, type=float

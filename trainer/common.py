@@ -6,6 +6,7 @@ import torch
 import torchvision.models as visionmodels
 
 DEFAULT_WEIGHTS = visionmodels.ResNet18_Weights.DEFAULT
+DEFAULT_STORAGE_CLASS = 'arrow'
 
 
 def device_from_obj(x: torch.Tensor | np.ndarray):

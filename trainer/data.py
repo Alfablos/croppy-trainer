@@ -9,8 +9,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from common import Device, Precision, DEFAULT_WEIGHTS
-from storage import LMDBStore
+from common import Device, Precision, DEFAULT_WEIGHTS, DEFAULT_STORAGE_CLASS
+import storage
 import config
 
 
@@ -23,7 +23,7 @@ class SmartDocDataset(Dataset):
 
     def __init__(
         self,
-        lmdb_path: str,
+        store_path: str,
         architecture: Architecture,
         precision: Precision,
         train: bool,
@@ -34,7 +34,7 @@ class SmartDocDataset(Dataset):
         super().__init__()
 
         self.precision = precision
-        self.lmdb_path = lmdb_path
+        self.store_path = store_path
         self.env = None  # opened on first __getitem__
         self.limit = limit
         self.train = train
@@ -43,7 +43,7 @@ class SmartDocDataset(Dataset):
         if self.limit is not None:
             return self.limit
         else:
-            with LMDBStore(self.lmdb_path, write=False) as store:
+            with storage.new_store(self.store_path, write=False) as store:
                 data_length = len(store)
             return data_length
 
@@ -51,7 +51,7 @@ class SmartDocDataset(Dataset):
         # Note: reading back 'corners_recess_percentage', which was stored via struct
         # corners_recess_percentage = struct.unpack('f', transaction.get("my_key".encode("ascii")))[0]
 
-        with LMDBStore(self.lmdb_path, write=False) as store:
+        with storage.new_store(self.store_path, write=False) as store:
             image, label = store.get(i)  # shape = (h, w, 3)
         # Tensorflow needs the underlying numpy array to be writable,
         # while data coming directly from arrow and LMDB is memory-mapped and immutable
@@ -98,7 +98,7 @@ def current_train_transforms(
         img_np = cv2.imread(input_path, cv2.IMREAD_COLOR_BGR)
         img_np = cv2.cvtColor(img_np, cv2.COLOR_BGR2RGB)
     else:
-        with LMDBStore(input_path[0], write=False) as store:
+        with storage.new_store(input_path[0], write=False) as store:
             img_np, _ = store.get(input_path[1])
         output_path = f"./{input_path[1]}_transformed.jpg"
 
@@ -138,11 +138,25 @@ def current_train_transforms(
     cv2.imwrite(output_path, result_bgr)
 
 
+def get_from_store(idx: int, path: str, storage_class=DEFAULT_STORAGE_CLASS):
+    with storage.new_store(path, write=False, storage_class=storage_class) as store:
+        image, label = store.get(idx)
+    return image, label
+
+
 if __name__ == "__main__":
-    current_train_transforms(
-        (
-            "./hires_compact/training_data/data_resnet_training_1000x1024x768_compacted.lmdb",
-            60,
-        ),  # input_path='/home/antonio/Downloads/2026-01-24-15-52-49-829.jpg',
-        output_path=None,
-    )
+    # current_train_transforms(
+    #     (
+    #         "./hires_compact/training_data/data_resnet_training_1000x1024x768_compacted.lmdb",
+    #         60,
+    #     ),  # input_path='/home/antonio/Downloads/2026-01-24-15-52-49-829.jpg',
+    #     output_path=None,
+    # )
+
+    db_path = 'croppy_22092x1024x768_recess0/training_data/data_resnet_training_22092x1024x768.arrow'
+    idx = 5
+    image, label = get_from_store(idx, db_path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    cv2.imwrite(f'{idx}.jpg', image)
+    print(label)
+

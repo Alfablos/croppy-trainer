@@ -42,10 +42,14 @@ let
   recess = "0";
   computeCorners = true;
   strict = true;
-  compact = true;
+  compact = if (lib.strings.toLower store) == "lmdb" # while a simple copy is implemented to mimic compacting a lmdb store for an aroow store,
+  # --compact doesn't make sense for arrow stores
+    then true
+    else false;
   commitFrequency = "100";
   precomputeWorkers = toString cpuCount;
-  limit = "40";
+  limit = "0";
+  store = "arrow"; # also the file extension: .lmdb .arrow
 
   # Training variables
   trainingOutputDir =
@@ -74,7 +78,7 @@ let
     + (if limit != "0" then limit else datasetLengths.${purpose})
     + "x${h}x${w}"
     + (if compact then "_compacted" else "")
-    + ".lmdb";
+    + "." + lib.strings.toLower store;
   loss_function = "invariant_smooth_mae";
   learningRate = "0.0001";
   dropout = "0.25";
@@ -109,7 +113,7 @@ let
         ${if compact then "--compact" else ""} \
         --commit-frequency ${commitFrequency} \
         --workers ${precomputeWorkers} \
-        --recess ${recess} ${if limit != "0" then "--limit ${limit}" else " "}'' # no newline here!
+        --recess ${recess} ${if limit != "0" then "--limit ${limit} " else " "}'' # no newline here!
   ) purposes;
 
 in

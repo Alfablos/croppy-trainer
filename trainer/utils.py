@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import lmdb
 import os
 from typing import List, Never
 
@@ -11,12 +10,9 @@ from numpy.typing import NDArray
 import torch
 import tensorboard
 
-from common import Device, DEFAULT_WEIGHTS
-from storage import LMDBStore
+from common import Device, DEFAULT_WEIGHTS, DEFAULT_STORAGE_CLASS
+import storage
 
-
-def compact_lmdb(env, dst_path: str):
-    env.copy(dst_path, compact=True)
 
 
 def load_checkpoint(p: str, train: bool = False) -> dict:
@@ -35,6 +31,7 @@ def resize_img(img, h: int, w: int, interpolation=cv2.INTER_AREA):
         :param img: ndarray
         :param h:   int
         :param w:   int
+        :param interpolation: cv2 constant. Defaults to cv2.INTER_AREA
     """
 
     return cv2.resize(img, (int(w), int(h)), interpolation=interpolation)
@@ -257,20 +254,20 @@ def dump_training_batch(
 
 # AI generated
 def inspect_dataset(
-    lmdb_path: str, output_dir: str, start_idx: int = 0, count: int = 10
+    store_path: str, output_dir: str, start_idx: int = 0, count: int = 10
 ):
     """
     Reads raw images and labels from LMDB and draws the stored coordinates.
     """
-    if not os.path.exists(lmdb_path):
-        raise FileNotFoundError(f"LMDB path not found: {lmdb_path}")
+    if not os.path.exists(store_path):
+        raise FileNotFoundError(f"{DEFAULT_STORAGE_CLASS} path not found: {store_path}")
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Opening LMDB: {lmdb_path}")
+    print(f"Opening LMDB: {store_path}")
 
-    with LMDBStore(lmdb_path, write=False) as store:
+    with storage.new_store(store_path, write=False) as store:
         # Get dataset length just to be sure
         total_len = len(store)
         print(f"Dataset reports length: {total_len}")
@@ -344,19 +341,6 @@ def inspect_dataset(
 
 
 
-def lmdb_get_int(key: str, lmdb_path: str):
-    env = lmdb.open(
-        lmdb_path, readonly=True, lock=False, readahead=False, meminit=False
-    )
-
-    with env.begin(write=False) as t:
-        val = t.get(key.encode("ascii"))
-        if val is None:
-            print("Not found.")
-            exit(1)
-        return int.from_bytes(val, "big")
-
-
 if __name__ == "__main__":
     LMDB_PATH = 'croppy_compact_40x1024x768_recess0/training_data/data_resnet_training_40x1024x768.lmdb'
 
@@ -364,5 +348,3 @@ if __name__ == "__main__":
     #     lmdb_path=LMDB_PATH, output_dir="./lmdb_dumps/train", start_idx=0, count=40
     # )
 
-    h = lmdb_get_int('h', LMDB_PATH)
-    print(f'h: {h}')

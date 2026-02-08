@@ -3,10 +3,10 @@ from pathlib import Path
 from time import sleep
 
 import cv2
-import lmdb
 from numpy.typing import NDArray
 from torch.utils.data import DataLoader
 
+import storage
 import utils
 from architecture import Architecture
 from common import DEFAULT_WEIGHTS
@@ -91,15 +91,14 @@ def run_train(args):
     weights = DEFAULT_WEIGHTS
 
     # Retrieve height and width from the LMDB store
-    print(f"Opening LMDB store at {args.lmdb_path}")
-    env = lmdb.open(args.lmdb_path, lock=False, readahead=False, meminit=False)
-    with env.begin(write=False) as t:
-        h = int(t.get("h".encode("utf-8")).decode('utf-8'))
-        w = int(t.get("w".encode("utf-8")).decode('utf-8'))
+    print(f"Opening LMDB store at {args.store_path}")
+    with storage.new_store(args.store_path, write=False) as store:
+        h = int(store.get_metadata('h'))
+        w = int(store.get_metadata('w'))
 
     print(f"Setting up training dataset...")
     resnet_train_ds = SmartDocDataset(
-        lmdb_path=args.lmdb_path,
+        store_path=args.store_path,
         architecture=Architecture.from_str(args.architecture),
         train=True,
         precision=Precision.from_str(args.precision),
@@ -114,10 +113,10 @@ def run_train(args):
         num_workers=args.workers,
     )
 
-    if args.validation_lmdb_path:
+    if args.validation_store_path:
         print(f"Setting up validation dataset...")
         resnet_val_ds = SmartDocDataset(
-            lmdb_path=args.validation_lmdb_path,
+            store_path=args.validation_store_path,
             architecture=Architecture.from_str(args.architecture),
             train=args.hard_validation,
             precision=Precision.from_str(args.precision),

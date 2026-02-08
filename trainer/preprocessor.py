@@ -9,17 +9,15 @@ from functools import partial
 from typing import Callable
 
 import storage
-from common import Purpose
+from common import Purpose, DEFAULT_STORAGE_CLASS
 from pathlib import Path
 import os
 import csv
 from tqdm import tqdm
 
-import lmdb
 import pandas as pd
 
 
-from utils import resize_img, assert_never, coords_from_segmentation_mask, compact_lmdb
 from architecture import Architecture, ProcessResult
 
 
@@ -102,14 +100,14 @@ def precompute(
         str(output_dir)
         + f"/data_{architecture.value}_{str(purpose)}_{data_length}x{target_h}x{target_w}"
     )
-    db_path = db_path_noext + ".lmdb"
+    db_path = db_path_noext + "." + DEFAULT_STORAGE_CLASS
 
     # if the user wants to compact the store and the
     # compacted store path is not empty, throw an error.
     # It's ok to error if even if the db path does not exist,
     # compacted data must not be overwritten
     if compact_store:
-        compacted_db_path = db_path_noext + "_compacted.lmdb"
+        compacted_db_path = db_path_noext + "_compacted." + DEFAULT_STORAGE_CLASS
         if (
             os.path.exists(compacted_db_path)
             and not len(os.listdir(compacted_db_path)) == 0
@@ -129,12 +127,8 @@ def precompute(
                     f"File {compacted_db_path} exists. Refusing to continue."
                 )
             cp.mkdir(parents=True)
-            env = lmdb.open(
-                db_path, readonly=False, lock=True
-            )  # prevent writing during the copy
-            compact_lmdb(env, compacted_db_path)
-            env.sync()
-            env.close()
+            with storage.new_store(compacted_db_path, write=True) as store:
+                store.compact(compacted_db_path)
             shutil.rmtree(db_path)
             return
         raise FileExistsError(db_path)
@@ -146,7 +140,7 @@ def precompute(
     if os.path.exists(index_path):
         raise FileExistsError(index_path)
 
-    print(f"Allocating {total_map_size / (1024**3):.2f} GB for the lmdb store.")
+    print(f"Allocating {total_map_size / (1024**3):.2f} GB for the {DEFAULT_STORAGE_CLASS} store.")
 
     if dry_run:
         return
@@ -155,7 +149,6 @@ def precompute(
             print("Waiting 5 seconds before starting, press Ctrl + c to interrupt...")
         sleep(5)
 
-    # env = lmdb.open(db_path, total_map_size, readonly=False, lock=True)
 
     # Write each example in the db after converting it to RGB
     if verbose:
@@ -177,11 +170,11 @@ def precompute(
         strict=strict,
     )
 
-    store = storage.LMDBStore(db_path, write=True)
-    store.set_metadata('corners_recess_percentage', coords_scale_percentage)
-    store.set_metadata('size', total_map_size)
-    store.set_metadata('h', target_h)
-    store.set_metadata('w', target_w)
+    store = storage.new_store(db_path, write=True)
+    store.set_metadata('corners_recess_percentage', str(coords_scale_percentage))
+    store.set_metadata('size', str(total_map_size))
+    store.set_metadata('h', str(target_h))
+    store.set_metadata('w', str(target_w))
 
     with multiprocessing.Pool(n_workers) as pool:
         result_iter = pool.imap(
