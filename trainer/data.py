@@ -40,7 +40,7 @@ class SmartDocDataset(Dataset):
             self.len = len(store)
         # cannot use self.store to aboid pytorch forking the pointer to an open store
         self.store = None
-        self.limit = limit
+        self.limit = limit if limit != 0 else None
         self.train = train
 
     def __len__(self):

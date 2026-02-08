@@ -36,17 +36,21 @@ let
     + w
     + "_recess"
     + recess;
-  h = "1024";
-  w = "768";
+  h = "512"; # "1024";
+  w = "384"; # "768";
   iext = "_in.png";
   lext = "_gt.png";
   recess = "0";
   computeCorners = true;
   strict = true;
-  compact = if (lib.strings.toLower store) == "lmdb" # while a simple copy is implemented to mimic compacting a lmdb store for an aroow store,
-  # --compact doesn't make sense for arrow stores
-    then true
-    else false;
+  compact =
+    if
+      (lib.strings.toLower store) == "lmdb" # while a simple copy is implemented to mimic compacting a lmdb store for an aroow store,
+    # --compact doesn't make sense for arrow stores
+    then
+      true
+    else
+      false;
   commitFrequency = "100";
   precomputeWorkers = toString cpuCount;
   limit = "0";
@@ -79,7 +83,8 @@ let
     + (if limit != "0" then limit else datasetLengths.${purpose})
     + "x${h}x${w}"
     + (if compact then "_compacted" else "")
-    + "." + lib.strings.toLower store;
+    + "."
+    + lib.strings.toLower store;
   loss_function = "invariant_smooth_mae";
   learningRate = "0.0001";
   dropout = "0.25";
