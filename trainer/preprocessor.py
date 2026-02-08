@@ -7,27 +7,18 @@ from torch.multiprocessing import cpu_count
 import multiprocessing
 from functools import partial
 from typing import Callable
-from pandas.io.xml import preprocess_data
 
 import storage
 from common import Purpose
-from itertools import chain
 from pathlib import Path
-import pickle
-import cv2
-from crawler import crawl
 import os
 import csv
 from tqdm import tqdm
-import struct
 
 import lmdb
-import numpy as np
 import pandas as pd
-import struct
 
 
-from common import Precision
 from utils import resize_img, assert_never, coords_from_segmentation_mask, compact_lmdb
 from architecture import Architecture, ProcessResult
 
@@ -189,6 +180,8 @@ def precompute(
     store = storage.LMDBStore(db_path, write=True)
     store.set_metadata('corners_recess_percentage', coords_scale_percentage)
     store.set_metadata('size', total_map_size)
+    store.set_metadata('h', target_h)
+    store.set_metadata('w', target_w)
 
     with multiprocessing.Pool(n_workers) as pool:
         result_iter = pool.imap(
@@ -201,7 +194,6 @@ def precompute(
         with store as s:
 
             try:
-
                 for result in result_iter:
                     if not result:
                         if verbose:
@@ -217,26 +209,7 @@ def precompute(
                     elif architecture == Architecture.UNET:
                         csv_writer.writerow([db_index, ipath, lpath])
 
-                    # Put image
-                    # ibytes = pickle.dumps(img)
-                    # keys for images: i0, i1, i2, i1 ...
-                    # keys for labels: l0, l1, l2, l3 ...
-                    # ikey = f"i{db_index}".encode("ascii")
-                    # transaction.put(ikey, ibytes)
-
-                    # Put label
-                    # lbytes = pickle.dumps(label)
-                    # lkey = f"l{db_index}".encode("ascii")
-                    # transaction.put(lkey, lbytes)
                     s.append(img, label)
-
-                    # Commit every commit_freq resize operations to save memory
-                    # if ((db_index + 1) % commit_freq == 0) or (
-                    #     db_index == len(rows) - 1
-                    # ):  # every commit_fre iterations and on the last one
-                    #     transaction.commit()
-                    #     env.sync()  # forces filesystem synchronization
-                    #     transaction = env.begin(write=True)
 
                     if progress:
                         bar.update(1)

@@ -2,27 +2,17 @@ from pathlib import Path
 
 import lmdb
 import os
-from sys import argv
-
-import pickle
-from pandas.tests.arrays.masked.test_arrow_compat import pa
-import time
-from enum import Enum
-from typing import List, Any, Literal, Never
-from itertools import chain
+from typing import List, Never
 
 from PIL import Image
-from tqdm import tqdm
 import cv2
 import numpy as np
 from numpy.typing import NDArray
 import torch
-from torch import nn
-from torch import functional as F
 import tensorboard
 
-from common import Device, Precision, DEFAULT_WEIGHTS, Purpose
-
+from common import Device, DEFAULT_WEIGHTS
+from storage import LMDBStore
 
 
 def compact_lmdb(env, dst_path: str):
@@ -279,35 +269,23 @@ def inspect_dataset(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Opening LMDB: {lmdb_path}")
-    env = lmdb.open(
-        lmdb_path, readonly=True, lock=False, readahead=False, meminit=False
-    )
 
-    with env.begin(write=False) as txn:
+    with LMDBStore(lmdb_path, write=False) as store:
         # Get dataset length just to be sure
-        length_bytes = txn.get("__len__".encode("ascii"))
-        if length_bytes:
-            total_len = int.from_bytes(length_bytes, "big")
-            print(f"Dataset reports length: {total_len}")
+        total_len = len(store)
+        print(f"Dataset reports length: {total_len}")
 
         for i in range(start_idx, start_idx + count):
             img_key = f"i{i}".encode("ascii")
             lbl_key = f"l{i}".encode("ascii")
 
-            img_bytes = txn.get(img_key)
-            lbl_bytes = txn.get(lbl_key)
-
-            if not img_bytes or not lbl_bytes:
-                print(f"Skipping index {i}: Data not found.")
-                continue
+            image, label = store.get(i)
 
             # 1. Load Raw Data
             # Image is typically (H, W, 3) BGR/RGB depending on how you saved it
             # Your crawler saves as RGB usually, but OpenCV needs BGR to save.
-            image = pickle.loads(img_bytes)
 
             # Label should be raw coords (8,) or (4, 2)
-            label = pickle.loads(lbl_bytes)
 
             # 2. Process Image for Drawing
             # Ensure it's contiguous and uint8
@@ -364,7 +342,6 @@ def inspect_dataset(
             cv2.imwrite(str(out_path), viz_image)
             print(f"Saved {out_path} | Label range: {label.min()} - {label.max()}")
 
-    env.close()
 
 
 def lmdb_get_int(key: str, lmdb_path: str):

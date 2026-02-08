@@ -94,8 +94,8 @@ def run_train(args):
     print(f"Opening LMDB store at {args.lmdb_path}")
     env = lmdb.open(args.lmdb_path, lock=False, readahead=False, meminit=False)
     with env.begin(write=False) as t:
-        h = int.from_bytes(t.get("h".encode("ascii")), "big")
-        w = int.from_bytes(t.get("w".encode("ascii"), "big"))
+        h = int(t.get("h".encode("utf-8")).decode('utf-8'))
+        w = int(t.get("w".encode("utf-8")).decode('utf-8'))
 
     print(f"Setting up training dataset...")
     resnet_train_ds = SmartDocDataset(
