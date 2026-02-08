@@ -82,7 +82,7 @@ let
   loss_function = "invariant_smooth_mae";
   learningRate = "0.0001";
   dropout = "0.25";
-  epochs = "30";
+  epochs = "100";
   workers = toString (cpuCount / 2);
   batchSize = "32";
   device = "gpu";
