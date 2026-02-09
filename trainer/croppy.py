@@ -183,7 +183,7 @@ if __name__ == "__main__":
 
     ## Train ##
     train_cmd.add_argument("--store-path", "--store", "--db", required=True)
-    train_cmd.add_argument("--validation-store-path", "--valstore", "--valdb", required=False)
+    train_cmd.add_argument("--validation-store-path", "--valstore", "--valdb", required=True)
     train_cmd.add_argument("--architecture", "--arch", "-a", required=True)
     train_cmd.add_argument(
         "--learning-rate", "--lrate", "--lr", "-l", required=True, type=float
@@ -231,6 +231,7 @@ if __name__ == "__main__":
         "--verbose", "-v", action="store_true", required=False, default=False
     )
     train_cmd.add_argument("--debug", "-D", required=False, default=None)
+    train_cmd.add_argument("--checkpoint", "-C", required=False, type=int, default=10)
     train_cmd.add_argument(
         "--progress", action="store_true", required=False, default=False
     )

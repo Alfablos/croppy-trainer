@@ -10,7 +10,7 @@ import tqdm
 from loss import loss_from_str
 from architecture import Architecture
 from data import SmartDocDataset, get_transforms
-from typing import Callable
+from typing import Callable, Any
 
 import torch
 import torch.nn as nn
@@ -125,6 +125,42 @@ class CroppyNet(
         return model.to(device.value)  # adds a validation step
 
 
+
+def save_checkpoint(
+    epoch_progress: tuple[int, int],
+    epoch_losses: tuple[ float, float | None],  # TODO: check the output type of loss functions
+    run_name: str,
+    out_dir: str,
+    model: CroppyNet,
+    optimizer: torch.optim.Optimizer
+):
+    epoch, epochs = epoch_progress
+    epoch_train_loss, epoch_val_loss = epoch_losses
+    
+    checkpoint_name = f"{run_name}_epoch_{epoch + 1}_of_{epochs}"
+    checkpoint_file = str(out_dir) + "/" + checkpoint_name + ".pth"
+    
+    checkpoint = {
+        "architecture": f"{model.architecture}",
+        "images_height": model.images_height,
+        "images_width": model.images_width,
+        "total_epochs": epochs,
+        "epoch": epoch + 1,
+        "loss_fn": model.loss_function(),
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "train_loss": epoch_train_loss,
+        "val_loss": epoch_val_loss,
+        "dropout": model.dropout,
+        "initial_learning_rate": model.learning_rate,
+        "current_learning_rate": optimizer.param_groups[0]["lr"]
+    }
+    
+    torch.save(checkpoint, checkpoint_file)
+
+
+
+
 @torch.no_grad()
 def validation_data(
     model,
@@ -146,7 +182,7 @@ def validation_data(
     for images, labels in loader:
         batch_n += 1
         if verbose:
-            print(f"Training: tarting batch {batch_n + 1} of {len(loader)}")
+            print(f"Training (validation): tarting batch {batch_n + 1} of {len(loader)}")
         images, labels = images.to(device.value), labels.to(device.value)
         h, w = images.shape[-2:]
         labels_wrapped = tv_tensors.KeyPoints(
@@ -182,6 +218,7 @@ def train(
     train_len: int,  # only to append the information to filename and specs
     hard_validation: bool,
     debug: int | None,
+    checkpoint: int | None,
     with_tensorboard: bool = False,
     verbose=False,
     progress=False,
@@ -195,6 +232,12 @@ def train(
         for k, v in locals().items():
             print(f"==> {k}: {v}")
             print()
+    
+    # Avoids division by 0 later on if debug or checkpoint are 0
+    if debug == 0:
+        debug = None
+    if checkpoint == 0:
+        checkpoint = None
 
     run_name = f"{model.architecture}_{model.loss_function()}_{model.dropout}dropout_{model.learning_rate}lr_{epochs}epochs_{train_len}x{model.images_height}x{model.images_width}"
     print(f"Starting run {run_name}")
@@ -358,24 +401,18 @@ def train(
                 global_step=epoch + 1,
             )
 
-        # Saving checkpoint
-        checkpoint_name = f"{run_name}_epoch_{epoch + 1}_of_{epochs}"
-        checkpoint_file = str(out_dir) + "/" + checkpoint_name + ".pth"
-        checkpoint = {
-            "architecture": f"{model.architecture}",
-            "images_height": model.images_height,
-            "images_width": model.images_width,
-            "total_epochs": epochs,
-            "epoch": epoch + 1,
-            "loss_fn": model.loss_function(),
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "train_loss": epoch_train_loss,
-            "val_loss": epoch_val_loss,
-            "dropout": model.dropout,
-            "initial_learning_rate": model.learning_rate,
-            "current_learning_rate": optimizer.param_groups[0]["lr"]
-        }
-        torch.save(checkpoint, checkpoint_file)
+        print(checkpoint)
+        print(type(checkpoint))
+        print(checkpoint)
+        if checkpoint is not None and (epoch + 1) % checkpoint == 0:
+            save_checkpoint(
+                epoch_progress=(epoch, epochs),
+                epoch_losses=(epoch_train_loss, epoch_val_loss),
+                run_name=run_name,
+                out_dir=out_dir,
+                model=model,
+                optimizer=optimizer
+            )
     if with_tensorboard:
         s_writer.close()
+

@@ -114,23 +114,22 @@ def run_train(args):
         num_workers=args.workers,
     )
 
-    if args.validation_store_path:
-        print(f"Setting up validation dataset...")
-        resnet_val_ds = SmartDocDataset(
-            store_path=args.validation_store_path,
-            architecture=Architecture.from_str(args.architecture),
-            train=args.hard_validation,
-            precision=Precision.from_str(args.precision),
-            limit=args.limit,
-        )
+    print(f"Setting up validation dataset...")
+    resnet_val_ds = SmartDocDataset(
+        store_path=args.validation_store_path,
+        architecture=Architecture.from_str(args.architecture),
+        train=args.hard_validation,
+        precision=Precision.from_str(args.precision),
+        limit=args.limit,
+    )
 
-        val_dataloader = DataLoader(
-            pin_memory=True,  # Using CUDA
-            dataset=resnet_val_ds,
-            shuffle=False,
-            batch_size=args.batch_size,
-            num_workers=args.workers,
-        )
+    val_dataloader = DataLoader(
+        pin_memory=True,  # Using CUDA
+        dataset=resnet_val_ds,
+        shuffle=False,
+        batch_size=args.batch_size,
+        num_workers=args.workers,
+    )
 
     model = CroppyNet(
         weights=weights,
@@ -155,6 +154,7 @@ def run_train(args):
         progress=args.progress,
         with_tensorboard=args.enable_tensorboard,
         debug=int(args.debug) if args.debug is not None else None,
+        checkpoint = args.checkpoint
     )
 
 
