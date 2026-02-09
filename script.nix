@@ -57,7 +57,7 @@ let
   store = "arrow"; # also the file extension: .lmdb .arrow
 
   # Training variables
-  trainLimit = "40";
+  trainLimit = "200";
   trainingOutputDir =
     "croppy_"
     + (if trainLimit == "0" then datasetLengths.training else trainLimit)
@@ -89,12 +89,12 @@ let
   loss_function = "invariant_smooth_mae";
   learningRate = "0.0001";
   dropout = "0.25";
-  epochs = "100";
+  epochs = "5";
   workers = toString (cpuCount / 2);
   batchSize = "32";
   device = "gpu";
-  debug = "2";
-  checkpoint = "2";
+  debug = "5";
+  checkpoint = "1";
   tensorboard = true;
   hardValidation = true;
 
@@ -150,8 +150,8 @@ pkgs.writeScript "quick-run" ''
       --device ${device} \
       ${if hardValidation then "--hard-validation" else ""} \
       ${if trainLimit != 0 then "--limit ${trainLimit}" else ""} \
-      ${ if debug != 0 then "--debug ${debug}" else ""} \
-      ${ if checkpoint != 0 then "--checkpoint ${checkpoint}" else ""} 
+      ${if debug != 0 then "--debug ${debug}" else ""} \
+      ${if checkpoint != 0 then "--checkpoint ${checkpoint}" else ""} 
   }
 
 
