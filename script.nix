@@ -21,8 +21,8 @@ let
     validation = "7430";
   };
   precomputeDataRoot = "~/Downloads/smartdoc15/extended_smartdoc_dataset";
-  verbose = false;
-  progress = true;
+  verbose = true;
+  progress = false;
   cpuCount = 16;
 
   # Precompute variables
@@ -57,9 +57,10 @@ let
   store = "arrow"; # also the file extension: .lmdb .arrow
 
   # Training variables
+  trainLimit = "40";
   trainingOutputDir =
     "croppy_"
-    + (if limit == "0" then datasetLengths.training else limit)
+    + (if trainLimit == "0" then datasetLengths.training else trainLimit)
     + "x"
     + h
     + "x"
@@ -93,6 +94,7 @@ let
   batchSize = "32";
   device = "gpu";
   debug = "2";
+  checkpoint = "2";
   tensorboard = true;
   hardValidation = true;
 
@@ -147,8 +149,9 @@ pkgs.writeScript "quick-run" ''
       ${if progress then "--progress" else ""} \
       --device ${device} \
       ${if hardValidation then "--hard-validation" else ""} \
-      ${if limit != 0 then "--limit ${limit}" else ""} \
-      --debug ${debug}
+      ${if trainLimit != 0 then "--limit ${trainLimit}" else ""} \
+      ${ if debug != 0 then "--debug ${debug}" else ""} \
+      ${ if checkpoint != 0 then "--checkpoint ${checkpoint}" else ""} 
   }
 
 
