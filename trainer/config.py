@@ -22,7 +22,7 @@ train_gpu_transforms = lambda t: transformsV2.Compose(
         ),  # p=0.5 => half of the dataset is affected
         # All the pipeline must be computed on UINT8, conversion at last
         transformsV2.ToDtype(torch.float32, scale=True),
-        transformsV2.GaussianNoise(),  # needs float input or turns uint8 into floats!
+        # transformsV2.GaussianNoise(),  # needs float input or turns uint8 into floats!
         transformsV2.Normalize(mean=t.mean, std=t.std),
     ]
 )

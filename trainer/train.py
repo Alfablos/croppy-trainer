@@ -182,7 +182,7 @@ def validation_data(
     for images, labels in loader:
         batch_n += 1
         if verbose:
-            print(f"Training (validation): tarting batch {batch_n + 1} of {len(loader)}")
+            print(f"Training (validation): tarting batch {batch_n} of {len(loader)}")
         images, labels = images.to(device.value), labels.to(device.value)
         h, w = images.shape[-2:]
         labels_wrapped = tv_tensors.KeyPoints(
@@ -308,7 +308,7 @@ def train(
                 batch_n += 1
                 if verbose:
                     print(
-                        f"Training: starting batch {batch_n + 1} of {len(train_dataloader)}"
+                        f"Training: starting batch {batch_n} of {len(train_dataloader)}"
                     )
                 images, labels = (
                     images.to(model.target_device.value),
@@ -401,10 +401,9 @@ def train(
                 global_step=epoch + 1,
             )
 
-        print(checkpoint)
-        print(type(checkpoint))
-        print(checkpoint)
         if checkpoint is not None and (epoch + 1) % checkpoint == 0:
+            if verbose:
+                print(f'Saving intermediate checkpoint. Epoch {epoch + 1} of {epochs}')
             save_checkpoint(
                 epoch_progress=(epoch, epochs),
                 epoch_losses=(epoch_train_loss, epoch_val_loss),
@@ -415,4 +414,13 @@ def train(
             )
     if with_tensorboard:
         s_writer.close()
-
+    
+    print(f'Saving final checkpoint. Epoch {epochs}')
+    save_checkpoint(
+        epoch_progress=(epochs, epochs),
+        epoch_losses=(epoch_train_loss, epoch_val_loss),
+        run_name=run_name,
+        out_dir=out_dir,
+        model=model,
+        optimizer=optimizer
+    )
