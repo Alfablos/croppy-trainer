@@ -87,7 +87,7 @@ let
     + "."
     + lib.strings.toLower store;
   loss_function = "invariant_smooth_mae";
-  learningRate = "0.000001";
+  learningRate = "0.0001";
   dropout = "0.25";
   epochs = "5";
   workers = toString (cpuCount / 2);
