@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torchvision.models as visionmodels
 
-DEFAULT_WEIGHTS = visionmodels.ResNet18_Weights.DEFAULT
+DEFAULT_WEIGHTS = visionmodels.ResNet34_Weights.DEFAULT
 DEFAULT_STORAGE_CLASS = 'arrow'
 
 

@@ -42,7 +42,7 @@ class CroppyNet(
     ):
         super().__init__()
 
-        self.weights = weights
+        # self.weights = weights
         self.architecture = architecture
         self.loss_fn = loss_fn
         self.target_device = target_device
@@ -54,7 +54,7 @@ class CroppyNet(
 
         # test: remove the pooling layer
         # self.model = visionmodels.resnet18(weights=weights, progress=True)
-        self.model = visionmodels.resnet18(weights=weights)
+        self.model = visionmodels.resnet34(weights=weights)
         self.model = nn.Sequential(*list(self.model.children())[:-2]) # exclude pooling layer and fully connected
 
         # Resnet downsamples x32
