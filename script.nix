@@ -53,11 +53,11 @@ let
       false;
   commitFrequency = "100";
   precomputeWorkers = toString cpuCount;
-  limit = "100";
+  limit = "0";
   store = "arrow"; # also the file extension: .lmdb .arrow
 
   # Training variables
-  trainLimit = "200";
+  trainLimit = "0";
   trainingOutputDir =
     "croppy_"
     + (if trainLimit == "0" then datasetLengths.training else trainLimit)
@@ -89,12 +89,12 @@ let
   loss_function = "invariant_smooth_mae";
   learningRate = "0.0001";
   dropout = "0.25";
-  epochs = "5";
+  epochs = "100";
   workers = toString (cpuCount / 2);
-  batchSize = "32";
+  batchSize = "64";
   device = "gpu";
   debug = "5";
-  checkpoint = "1";
+  checkpoint = "5";
   tensorboard = true;
   hardValidation = true;
 
