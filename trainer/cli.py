@@ -171,8 +171,8 @@ def run_predict(args):
         h=model.images_height,
         w=model.images_width,
         color=True,
-        resize=True,
         interpolation=cv2.INTER_AREA,
+        allow_padding=True
     )
 
     norm_coords = predict(

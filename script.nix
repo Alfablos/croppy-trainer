@@ -37,7 +37,7 @@ let
     + "_recess"
     + recess;
   h = "512"; # "1024";
-  w = "384"; # "768";
+  w = "512"; # "768";
   iext = "_in.png";
   lext = "_gt.png";
   recess = "0";
@@ -53,7 +53,7 @@ let
       false;
   commitFrequency = "100";
   precomputeWorkers = toString cpuCount;
-  limit = "0";
+  limit = "100";
   store = "arrow"; # also the file extension: .lmdb .arrow
 
   # Training variables

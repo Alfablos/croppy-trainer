@@ -6,7 +6,12 @@ import numpy as np
 from numpy.typing import NDArray
 
 from common import Precision, Device
-from utils import assert_never, resize_img, coords_from_segmentation_mask
+from utils import (
+    assert_never,
+    resize_img,
+    coords_from_segmentation_mask,
+    get_resize_params,
+)
 
 
 class ProcessResult:
@@ -47,10 +52,12 @@ class Architecture(Enum):
         path,
         h,
         w,
+        allow_padding: bool,
         color: bool = True,
-        resize: bool = True,
         interpolation=cv2.INTER_AREA,
     ):
+        target_h = h
+        target_w = w
         imdata = cv2.imread(path, cv2.IMREAD_COLOR if color else cv2.IMREAD_GRAYSCALE)
         if imdata is None:
             raise RuntimeError(f"Could not read image at {path}.")
@@ -61,11 +68,47 @@ class Architecture(Enum):
         if color:  # BRG -> RB
             imdata = cv2.cvtColor(imdata, cv2.COLOR_BGR2RGB)
 
-        if not resize:
-            return imdata, original_shape
-        img_resized = resize_img(imdata, h, w, interpolation=interpolation)
+        if (
+            target_h > original_h or target_w > original_w
+        ) and interpolation == cv2.INTER_AREA:
+            print(
+                "WARNING: the target shape of the image is bigger than the original but INTER_AREA interpolation, which is best for shrinking, is being used. Be sure this is what you intend to do."
+            )
+
+        new_h, new_w, pad_h, pad_w, scale = get_resize_params(
+            original_h=original_h,
+            original_w=original_w,
+            target_h=target_h,
+            target_w=target_w,
+        )
+
+        img_resized = resize_img(imdata, new_h, new_w, interpolation=interpolation)
         if img_resized is None:
             raise RuntimeError(f"Could not resize image at {path}.")
+
+        needs_padding = pad_h != 0 or pad_w != 0
+        if needs_padding:
+            if needs_padding and not allow_padding:
+                raise ValueError(
+                    "Cannot resize image: the target shape requires padding but `allow_padding` is set to False."
+                )
+
+            pad_top = pad_h // 2
+            pad_bottom = pad_h - pad_top
+            pad_left = pad_w // 2
+            pad_right = pad_w - pad_left
+
+            if img_resized.ndim == 2:
+                pad_widths = ((pad_top, pad_bottom), (pad_left, pad_right))
+            else:
+                pad_widths = ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0))
+
+            img_resized = np.pad(
+                array=img_resized,
+                pad_width=pad_widths,
+                mode="constant",
+                constant_values=0,  # black padding, white would confuse the model
+            )
 
         return img_resized, original_shape
 
@@ -76,7 +119,12 @@ class Architecture(Enum):
         """
         ipath = row["image_path"]
         img_resized, original_shape = Architecture.resize_image(
-            ipath, h, w, resize=True, color=True
+            ipath, h, w, allow_padding=True, color=True
+        )
+
+        original_h, original_w = original_shape
+        _, _, pad_h, pad_w, scale = get_resize_params(
+            original_h=original_h, original_w=original_w, target_h=h, target_w=w
         )
 
         if "x1" in row:  # have coords
@@ -85,6 +133,9 @@ class Architecture(Enum):
             )
         elif "label_path" in row:  # compute cords from mask
             mask = cv2.imread(row["label_path"], cv2.IMREAD_GRAYSCALE)
+            if mask is None:
+                raise RuntimeError(f"Could not read label mask at {row['label_path']}")
+
             coords = coords_from_segmentation_mask(
                 mask, device=Device.CPU, scale_percentage=coords_scale_percentage
             )
@@ -98,15 +149,14 @@ class Architecture(Enum):
             )
 
         # Scale the coordinates according to the new image size:
-        original_h, original_w = original_shape
-        x_scale = w / original_w
-        y_scale = h / original_h
-
         coords = coords.reshape(4, 2).astype(
             np.float64
         )  # they were still uint32 and _scale is float
-        coords[:, 0] *= x_scale
-        coords[:, 1] *= y_scale
+
+        coords *= scale
+        coords[:, 0] += pad_w // 2
+        coords[:, 1] += pad_h // 2
+
         coords = coords.flatten()
 
         return ProcessResult(img_resized, coords)
@@ -116,14 +166,17 @@ class Architecture(Enum):
         ipath = row["image_path"]
         mpath = row["label_path"]
 
-        img_resized = Architecture.resize_image(
-            row["image_path"], h, w, resize=True, color=True
+        img_resized, original_shape = Architecture.resize_image(
+            row["image_path"], h, w, color=True, allow_padding=True
         )
 
-        mask = cv2.imread(row["label_path"], cv2.IMREAD_GRAYSCALE)
-
-        mask_resized = Architecture.resize_image(
-            mpath, h, w, color=False, resize=True, interpolation=cv2.INTER_NEAREST
+        mask_resized, original_shape = Architecture.resize_image(
+            mpath,
+            h,
+            w,
+            color=False,
+            allow_padding=True,
+            interpolation=cv2.INTER_NEAREST,
         )
 
         return ProcessResult(img_resized, mask_resized)

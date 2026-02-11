@@ -143,8 +143,8 @@ def current_train_transforms(
     cv2.imwrite(output_path, result_bgr)
 
 
-def get_from_store(idx: int, path: str, storage_class=DEFAULT_STORAGE_CLASS):
-    with storage.new_store(path, write=False, storage_class=storage_class) as store:
+def get_from_store(idx: int, path: str):
+    with storage.new_store(path, write=False) as store:
         image, label = store.get(idx)
     return image, label
 
@@ -153,6 +153,10 @@ def get_store_len(store_path: str):
         data_length = len(store)
     return data_length
 
+def get_store_metadata(store_path: str, key: str):
+    with storage.new_store(store_path, write=False) as store:
+        return store.get_metadata(key)
+    
 
 
 if __name__ == "__main__":
@@ -164,8 +168,11 @@ if __name__ == "__main__":
     #     output_path=None,
     # )
 
-    db_path = './croppy_22092x1024x768_recess0/training_data/data_resnet_training_22092x1024x768.arrow'
-    idx = 22091
+    db_path = 'croppy_100x512x512_recess0/training_data/data_resnet_training_100x512x512.arrow'
+    h, w = get_store_metadata(db_path, 'h'), get_store_metadata(db_path, 'w')
+    print('Images h =', h)
+    print('Images w =', w)
+    idx = 5
     image, label = get_from_store(idx, db_path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     cv2.imwrite(f'{idx}.jpg', image)

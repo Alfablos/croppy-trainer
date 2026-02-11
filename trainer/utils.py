@@ -341,6 +341,23 @@ def inspect_dataset(
 
 
 
+def get_resize_params(original_h: int, original_w: int, target_h: int, target_w: int) -> tuple[int, int, int, int, float]:
+    height_ratio: float = target_h / original_h
+    width_ratio: float = target_w / original_w
+    scale: float = min(height_ratio, width_ratio)
+    
+    new_h = int(original_h * scale)
+    new_w = int(original_w * scale)
+    
+    pad_h = target_h - new_h
+    pad_w = target_w - new_w
+    
+    return new_h, new_w, pad_h, pad_w, scale
+
+
+
+
+
 if __name__ == "__main__":
     LMDB_PATH = 'croppy_compact_40x1024x768_recess0/training_data/data_resnet_training_40x1024x768.lmdb'
 
