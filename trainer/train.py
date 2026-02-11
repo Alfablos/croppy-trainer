@@ -67,6 +67,7 @@ class CroppyNet(
         flat_size = int(h_for_layer * w_for_layer * 512) # (512 channels is the number of channels the output has before entering in the, replaced, maxpool layer)
         self.fc = Sequential(
             Flatten(),
+            Dropout(p=self.dropout),
             Linear(in_features=flat_size, out_features=512), # replaces maxpool
             ReLU(),
             Linear(in_features=512, out_features=256),
@@ -182,7 +183,7 @@ def validation_data(
     for images, labels in loader:
         batch_n += 1
         if verbose:
-            print(f"Training (validation): tarting batch {batch_n} of {len(loader)}")
+            print(f"Training (validation): starting batch {batch_n} of {len(loader)}")
         images, labels = images.to(device.value), labels.to(device.value)
         h, w = images.shape[-2:]
         labels_wrapped = tv_tensors.KeyPoints(
@@ -415,7 +416,7 @@ def train(
     if with_tensorboard:
         s_writer.close()
     
-    print(f'Saving final checkpoint. Epoch {epochs}')
+    print(f'Saving final checkpoint.')
     save_checkpoint(
         epoch_progress=(epochs, epochs),
         epoch_losses=(epoch_train_loss, epoch_val_loss),
