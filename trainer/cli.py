@@ -93,8 +93,8 @@ def run_train(args):
     # Retrieve height and width from the LMDB store
     print(f"Opening store at {args.store_path}")
     with storage.new_store(args.store_path, write=False) as store:
-        h = int(store.get_metadata('h'))
-        w = int(store.get_metadata('w'))
+        h = int(store.get_metadata("h"))
+        w = int(store.get_metadata("w"))
 
     print(f"Setting up training dataset...")
 
@@ -154,7 +154,7 @@ def run_train(args):
         progress=args.progress,
         with_tensorboard=args.enable_tensorboard,
         debug=int(args.debug) if args.debug is not None else None,
-        checkpoint = args.checkpoint
+        checkpoint=args.checkpoint,
     )
 
 
@@ -172,7 +172,7 @@ def run_predict(args):
         w=model.images_width,
         color=True,
         interpolation=cv2.INTER_AREA,
-        allow_padding=True
+        allow_padding=True,
     )
 
     norm_coords = predict(

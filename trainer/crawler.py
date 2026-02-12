@@ -34,24 +34,23 @@ def chunks_from_list(l: Iterable[Any], n_chunks: int) -> list[Any]:
         return [p for p in l]
 
     chunk_size, remainder = (len(l) // n_chunks, len(l) % n_chunks)
-    
+
     result = []
     for i in range(n_chunks):
-
         start = i * chunk_size
         end = (i + 1) * chunk_size
-        result.append(l[start : end])
+        result.append(l[start:end])
     if remainder > 0:
-        result.append(l[n_chunks * chunk_size : ])
+        result.append(l[n_chunks * chunk_size :])
 
     return result
 
 
 def process_chunk(
-        pairs: list[tuple],
-        compute_corners: bool,
-        coords_scale_percentage: float,
-        verbose: bool
+    pairs: list[tuple],
+    compute_corners: bool,
+    coords_scale_percentage: float,
+    verbose: bool,
 ):
     if verbose:
         print(f"Runner: got {len(pairs)} objects.")
@@ -85,11 +84,9 @@ def process_chunk(
     return rows
 
 
-
 def _crawl_worker(payload):
     f, args = payload
     return f(args)
-
 
 
 def crawl(
@@ -195,13 +192,15 @@ def crawl(
     ## Parallelization
     image_label_pairs = chunks_from_list(zip(images, labels, strict=True), chunks)
     if verbose:
-        print(f"Split dataset into {len(image_label_pairs)} of {len(image_label_pairs[0])} paths each.")
+        print(
+            f"Split dataset into {len(image_label_pairs)} of {len(image_label_pairs[0])} paths each."
+        )
 
     task = partial(
         process_chunk,
         compute_corners=compute_corners,
         coords_scale_percentage=coords_scale_percentage,
-        verbose=verbose
+        verbose=verbose,
     )
 
     payload = [(task, pair) for pair in image_label_pairs]
@@ -215,7 +214,7 @@ def crawl(
     try:
         returned = 0
         # compute
-        for result in compute_tasks: # result is a chunk of paths and coordinates
+        for result in compute_tasks:  # result is a chunk of paths and coordinates
             returned += 1
             print(f"Worker {returned} returned results of length {len(result)}.")
             to_write.extend(result)
@@ -230,8 +229,7 @@ def crawl(
             progress_bar.close()
     if verbose:
         print("Done crawling. Saving.")
-    save_to_csv(to_write, output, 'w')
-
+    save_to_csv(to_write, output, "w")
 
 
 def save_to_csv(rows: list[dict], dst: str, mode="a"):

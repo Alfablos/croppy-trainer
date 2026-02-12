@@ -6,7 +6,7 @@ import torch
 import torchvision.models as visionmodels
 
 DEFAULT_WEIGHTS = visionmodels.ResNet34_Weights.DEFAULT
-DEFAULT_STORAGE_CLASS = 'arrow'
+DEFAULT_STORAGE_CLASS = "arrow"
 
 
 def device_from_obj(x: torch.Tensor | np.ndarray):
@@ -113,5 +113,3 @@ class Precision(Enum):
             raise NotImplementedError(
                 f"No type associated with {self} for GPU. This is a bug!"
             )
-
-

@@ -55,26 +55,32 @@ class CroppyNet(
         # test: remove the pooling layer
         # self.model = visionmodels.resnet18(weights=weights, progress=True)
         self.model = visionmodels.resnet34(weights=weights)
-        self.model = nn.Sequential(*list(self.model.children())[:-2]) # exclude pooling layer and fully connected
+        self.model = nn.Sequential(
+            *list(self.model.children())[:-2]
+        )  # exclude pooling layer and fully connected
 
         # Resnet downsamples x32
         if (images_height % 32 != 0) or (images_width % 32 != 0):
             if architecture == Architecture.RESNET:
-                raise ValueError(f"Resnet requires images height and width to be divisible by 32! Current values: h = {images_height}, w = {images_width}")
+                raise ValueError(
+                    f"Resnet requires images height and width to be divisible by 32! Current values: h = {images_height}, w = {images_width}"
+                )
         h_for_layer = images_height / 32
         w_for_layer = images_width / 32
         # 389120 neurons for 1024x768
-        flat_size = int(h_for_layer * w_for_layer * 512) # (512 channels is the number of channels the output has before entering in the, replaced, maxpool layer)
+        flat_size = int(
+            h_for_layer * w_for_layer * 512
+        )  # (512 channels is the number of channels the output has before entering in the, replaced, maxpool layer)
         self.fc = Sequential(
             Flatten(),
             Dropout(p=self.dropout),
-            Linear(in_features=flat_size, out_features=512), # replaces maxpool
+            Linear(in_features=flat_size, out_features=512),  # replaces maxpool
             ReLU(),
             Linear(in_features=512, out_features=256),
             ReLU(),
             Linear(in_features=256, out_features=64),
             ReLU(),
-            Linear(in_features=64, out_features=8) # The coordinates (finally!)
+            Linear(in_features=64, out_features=8),  # The coordinates (finally!)
         )
 
         # self.model.fc = Sequential(
@@ -120,27 +126,28 @@ class CroppyNet(
             images_height=config["images_height"],
             images_width=config["images_width"],
             dropout=config["dropout"],
-            learning_rate=config["current_learning_rate"]   # use current or target??
+            learning_rate=config["current_learning_rate"],  # use current or target??
         )
         model.load_state_dict(config["model_state_dict"])
         return model.to(device.value)  # adds a validation step
 
 
-
 def save_checkpoint(
     epoch_progress: tuple[int, int],
-    epoch_losses: tuple[ float, float | None],  # TODO: check the output type of loss functions
+    epoch_losses: tuple[
+        float, float | None
+    ],  # TODO: check the output type of loss functions
     run_name: str,
     out_dir: str,
     model: CroppyNet,
-    optimizer: torch.optim.Optimizer
+    optimizer: torch.optim.Optimizer,
 ):
     epoch, epochs = epoch_progress
     epoch_train_loss, epoch_val_loss = epoch_losses
-    
+
     checkpoint_name = f"{run_name}_epoch_{epoch + 1}_of_{epochs}"
     checkpoint_file = str(out_dir) + "/" + checkpoint_name + ".pth"
-    
+
     checkpoint = {
         "architecture": f"{model.architecture}",
         "images_height": model.images_height,
@@ -154,12 +161,10 @@ def save_checkpoint(
         "val_loss": epoch_val_loss,
         "dropout": model.dropout,
         "initial_learning_rate": model.learning_rate,
-        "current_learning_rate": optimizer.param_groups[0]["lr"]
+        "current_learning_rate": optimizer.param_groups[0]["lr"],
     }
-    
+
     torch.save(checkpoint, checkpoint_file)
-
-
 
 
 @torch.no_grad()
@@ -193,7 +198,9 @@ def validation_data(
         images, labels = gpu_transforms(images.to("cuda"), labels_wrapped)
         new_h, new_w = images.shape[-2:]
         labels = labels.as_subclass(torch.Tensor)
-        labels = (labels / torch.tensor([new_w, new_h], device="cuda")).flatten(start_dim=1)
+        labels = (labels / torch.tensor([new_w, new_h], device="cuda")).flatten(
+            start_dim=1
+        )
         # labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
 
         preds = model(images)
@@ -233,7 +240,7 @@ def train(
         for k, v in locals().items():
             print(f"==> {k}: {v}")
             print()
-    
+
     # Avoids division by 0 later on if debug or checkpoint are 0
     if debug == 0:
         debug = None
@@ -332,7 +339,9 @@ def train(
                 # See https://docs.pytorch.org/vision/main/auto_examples/transforms/plot_tv_tensors.html#but-i-want-a-tvtensor-back
                 # normalization may be ineffective on Keypoints, need to unwrap the underlying tensor
                 labels = labels.as_subclass(torch.Tensor)
-                labels = (labels / torch.tensor([new_w, new_h], device="cuda")).flatten(start_dim=1)
+                labels = (labels / torch.tensor([new_w, new_h], device="cuda")).flatten(
+                    start_dim=1
+                )
                 # No clamping, situations like x > w will be handled post-prediction
                 # labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
 
@@ -349,7 +358,11 @@ def train(
                     sub_bar.update(1)
 
                 # debug dump only on LAST minibatch of each epoch if epoch % debug == 0
-                if debug and (epoch + 1) % debug == 0 and batch_n == len(train_dataloader):
+                if (
+                    debug
+                    and (epoch + 1) % debug == 0
+                    and batch_n == len(train_dataloader)
+                ):
                     end = min(10, len(images))
                     # debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end], purpose=Purpose.TRAINING)
                     img_dict = debug_fn(
@@ -390,8 +403,9 @@ def train(
 
         if with_tensorboard:
             s_writer.add_scalar(
-                tag=f"LR_epoch{run_name}", scalar_value=optimizer.param_groups[0]["lr"],
-                global_step=epoch + 1
+                tag=f"LR_epoch{run_name}",
+                scalar_value=optimizer.param_groups[0]["lr"],
+                global_step=epoch + 1,
             )
             board_payload = {"train": epoch_train_loss}
             if validation_dataloader:
@@ -404,24 +418,24 @@ def train(
 
         if checkpoint is not None and (epoch + 1) % checkpoint == 0:
             if verbose:
-                print(f'Saving intermediate checkpoint. Epoch {epoch + 1} of {epochs}')
+                print(f"Saving intermediate checkpoint. Epoch {epoch + 1} of {epochs}")
             save_checkpoint(
                 epoch_progress=(epoch, epochs),
                 epoch_losses=(epoch_train_loss, epoch_val_loss),
                 run_name=run_name,
                 out_dir=out_dir,
                 model=model,
-                optimizer=optimizer
+                optimizer=optimizer,
             )
     if with_tensorboard:
         s_writer.close()
-    
-    print(f'Saving final checkpoint.')
+
+    print(f"Saving final checkpoint.")
     save_checkpoint(
         epoch_progress=(epochs, epochs),
         epoch_losses=(epoch_train_loss, epoch_val_loss),
         run_name=run_name,
         out_dir=out_dir,
         model=model,
-        optimizer=optimizer
+        optimizer=optimizer,
     )

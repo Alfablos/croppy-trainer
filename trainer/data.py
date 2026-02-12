@@ -19,7 +19,7 @@ import config
 
 
 class SmartDocDataset(Dataset):
-    supported_img_formats = ["png", 'jpg']
+    supported_img_formats = ["png", "jpg"]
 
     def __init__(
         self,
@@ -78,12 +78,13 @@ class SmartDocDataset(Dataset):
         )
         return image_tvtensor, label_tvtensor
 
+
 def get_transforms(weights, device: Device, train=False):
     if device == Device.CPU:
         if train:
-            return config.transforms['training']['cpu']
+            return config.transforms["training"]["cpu"]
         else:
-            return config.transforms['validation']['cpu']
+            return config.transforms["validation"]["cpu"]
     else:
         if weights is None:
             raise ValueError(
@@ -91,9 +92,9 @@ def get_transforms(weights, device: Device, train=False):
             )
         t = weights.transforms()
         if train:
-            return config.transforms['training']['gpu'](t)
+            return config.transforms["training"]["gpu"](t)
         else:
-            return config.transforms['validation']['gpu'](t)
+            return config.transforms["validation"]["gpu"](t)
 
 
 def current_train_transforms(
@@ -148,15 +149,16 @@ def get_from_store(idx: int, path: str):
         image, label = store.get(idx)
     return image, label
 
+
 def get_store_len(store_path: str):
     with storage.new_store(store_path, write=False) as store:
         data_length = len(store)
     return data_length
 
+
 def get_store_metadata(store_path: str, key: str):
     with storage.new_store(store_path, write=False) as store:
         return store.get_metadata(key)
-    
 
 
 if __name__ == "__main__":
@@ -168,16 +170,13 @@ if __name__ == "__main__":
     #     output_path=None,
     # )
 
-    db_path = 'croppy_100x512x512_recess0/training_data/data_resnet_training_100x512x512.arrow'
-    h, w = get_store_metadata(db_path, 'h'), get_store_metadata(db_path, 'w')
-    print('Images h =', h)
-    print('Images w =', w)
+    db_path = "croppy_100x512x512_recess0/training_data/data_resnet_training_100x512x512.arrow"
+    h, w = get_store_metadata(db_path, "h"), get_store_metadata(db_path, "w")
+    print("Images h =", h)
+    print("Images w =", w)
     idx = 5
     image, label = get_from_store(idx, db_path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    cv2.imwrite(f'{idx}.jpg', image)
+    cv2.imwrite(f"{idx}.jpg", image)
     print(label)
-    print('Store __len__:', get_store_len(db_path))
-
-
-
+    print("Store __len__:", get_store_len(db_path))

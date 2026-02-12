@@ -25,6 +25,7 @@ class PermutationInvariantLoss(nn.Module):
     It computes 4 losses (each corner might have ended up in place of another),
     but returns the lowest
     """
+
     def __init__(self, loss_fn: nn.Module):
         super().__init__()
 
@@ -32,10 +33,12 @@ class PermutationInvariantLoss(nn.Module):
 
         # https://discuss.pytorch.org/t/loss-reduction-sum-vs-mean-when-to-use-each/115641
         # https://discuss.pytorch.org/t/loss-reduction-sum-vs-mean-when-to-use-each/115641/2
-        if getattr(self.base_loss, 'reduction', None) != 'none':
-            print(f"WARNING: {self.base_loss} should be initialized with reduction='none'."
-                  "An override is needed and being performed now. Be sure to not rely on that value in the downstream code!")
-            self.base_loss.reduction = 'none'
+        if getattr(self.base_loss, "reduction", None) != "none":
+            print(
+                f"WARNING: {self.base_loss} should be initialized with reduction='none'."
+                "An override is needed and being performed now. Be sure to not rely on that value in the downstream code!"
+            )
+            self.base_loss.reduction = "none"
 
     def forward(self, preds, labels):
         """
@@ -63,20 +66,24 @@ class PermutationInvariantLoss(nn.Module):
             #         [ 1., 11.],
             #         [ 2., 22.],
             #         [ 3., 33.]])
-            rolled_labels = torch.roll(labels, shifts=i, dims=1) # dims 1 because dim 0 is the batch of images (batch_size, 4, 2) is the shape
+            rolled_labels = torch.roll(
+                labels, shifts=i, dims=1
+            )  # dims 1 because dim 0 is the batch of images (batch_size, 4, 2) is the shape
             elemwise_loss = self.base_loss(preds, rolled_labels)
             # for each image sum the loss of tl, tr, br, bl (corners)
-            coords_loss = elemwise_loss.sum(dim=(1, 2)) # total loss per image PER CORNER => (batch_size, 4)
+            coords_loss = elemwise_loss.sum(
+                dim=(1, 2)
+            )  # total loss per image PER CORNER => (batch_size, 4)
             losses.append(coords_loss)
 
         # dims = (batch_size, 4) where 4 is the 4 losses of the permutation
         stack_losses = torch.stack(losses, dim=1)
-        min_loss, _ = torch.min(stack_losses, dim=1) # => (batch_size, 1)
+        min_loss, _ = torch.min(stack_losses, dim=1)  # => (batch_size, 1)
 
         return min_loss.mean()
 
+        # dim 0 => list of losses
 
-            # dim 0 => list of losses
     def inner_to_str(self):
         if isinstance(self.base_loss, MSELoss):
             return "MSELoss"
@@ -89,17 +96,26 @@ def loss_from_str(s: str, **loss_opts):
     invariant = "invariant" in s_lower
 
     mae_aliases = ["mae", "maeloss", "mae_loss", "l1", "l1loss", "l1_loss"]
-    smooth_mae_aliases = ["smooth_mae", "smooth_maeloss", "smooth_mae_loss", "smooth_l1", "smooth_l1loss", "smooth_l1_loss"]
+    smooth_mae_aliases = [
+        "smooth_mae",
+        "smooth_maeloss",
+        "smooth_mae_loss",
+        "smooth_l1",
+        "smooth_l1loss",
+        "smooth_l1_loss",
+    ]
     mse_aliases = ["mse", "mseloss", "mse_loss", "l2", "l2loss", "l2_loss"]
     base_loss = None
-    reduction = 'none' if invariant else loss_opts.get('reduction', 'mean')
+    reduction = "none" if invariant else loss_opts.get("reduction", "mean")
 
-    if any([alias in s_lower for alias in smooth_mae_aliases]): # must be evaluated before MAE
-        base_loss = SmoothL1Loss(**{**loss_opts, 'reduction': 'none'})
+    if any(
+        [alias in s_lower for alias in smooth_mae_aliases]
+    ):  # must be evaluated before MAE
+        base_loss = SmoothL1Loss(**{**loss_opts, "reduction": "none"})
     elif any([alias in s_lower for alias in mae_aliases]):
-        base_loss = L1Loss(**{**loss_opts, 'reduction': 'none'})
+        base_loss = L1Loss(**{**loss_opts, "reduction": "none"})
     elif any([alias in s_lower for alias in mse_aliases]):
-        base_loss = MSELoss(**{**loss_opts, 'reduction': 'none'})
+        base_loss = MSELoss(**{**loss_opts, "reduction": "none"})
     else:
         raise ValueError(f"Unknown loss function: {s}")
 

@@ -73,7 +73,9 @@ def precompute(
 
     err = architecture.find_preprocessor_misconfig(args)
     if err:
-        raise ValueError(f"Invalid configuration for a {architecture.value} architecture: {err}")
+        raise ValueError(
+            f"Invalid configuration for a {architecture.value} architecture: {err}"
+        )
 
     if output_dir in [".", "./"]:
         output_dir = f"{purpose}_data"
@@ -140,7 +142,9 @@ def precompute(
     if os.path.exists(index_path):
         raise FileExistsError(index_path)
 
-    print(f"Allocating {total_map_size / (1024**3):.2f} GB for the {DEFAULT_STORAGE_CLASS} store.")
+    print(
+        f"Allocating {total_map_size / (1024**3):.2f} GB for the {DEFAULT_STORAGE_CLASS} store."
+    )
 
     if dry_run:
         return
@@ -148,7 +152,6 @@ def precompute(
         if verbose:
             print("Waiting 5 seconds before starting, press Ctrl + c to interrupt...")
         sleep(5)
-
 
     # Write each example in the db after converting it to RGB
     if verbose:
@@ -171,10 +174,10 @@ def precompute(
     )
 
     store = storage.new_store(db_path, write=True)
-    store.set_metadata('corners_recess_percentage', str(coords_scale_percentage))
-    store.set_metadata('size', str(total_map_size))
-    store.set_metadata('h', str(target_h))
-    store.set_metadata('w', str(target_w))
+    store.set_metadata("corners_recess_percentage", str(coords_scale_percentage))
+    store.set_metadata("size", str(total_map_size))
+    store.set_metadata("h", str(target_h))
+    store.set_metadata("w", str(target_w))
 
     with multiprocessing.Pool(n_workers) as pool:
         result_iter = pool.imap(
@@ -185,7 +188,6 @@ def precompute(
             bar = tqdm(total=len(rows), bar_format="{bar}{l_bar}{r_bar}’")
 
         with store as s:
-
             try:
                 for result in result_iter:
                     if not result:
@@ -207,7 +209,7 @@ def precompute(
                     if progress:
                         bar.update(1)
                     db_index += 1
-                
+
                 if compact_store:
                     print(f"Compacting LMDB store {db_path} to {compacted_db_path}")
                     Path(compacted_db_path).mkdir(parents=True, exist_ok=True)
