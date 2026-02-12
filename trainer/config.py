@@ -3,6 +3,13 @@ from torchvision.transforms import v2 as transformsV2
 
 from common import Device
 
+
+
+
+
+
+### Transforms ###
+
 transforms = {
     'training': {
         'cpu': transformsV2.Compose([
@@ -32,40 +39,6 @@ transforms = {
         ])
     }
 }
-
-train_cpu_transforms = transformsV2.Compose(
-    [
-        transformsV2.ToImage(),
-        transformsV2.JPEG(quality=[50, 100]),  # CPU-bound, cannot run on GPU
-        transformsV2.ColorJitter(brightness=0.5, contrast=0.8, saturation=0.4),
-        transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
-    ]
-)
-
-
-train_gpu_transforms = lambda t: transformsV2.Compose(
-    [
-        # transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
-        transformsV2.ElasticTransform(alpha=40.0),
-        transformsV2.RandomPerspective(
-            distortion_scale=0.5, p=0.7, fill=(255, 255, 255)
-        ),  # p=0.5 => half of the dataset is affected
-        # All the pipeline must be computed on UINT8, conversion at last
-        transformsV2.ToDtype(torch.float32, scale=True),
-        # transformsV2.GaussianNoise(),  # needs float input or turns uint8 into floats!
-        transformsV2.Normalize(mean=t.mean, std=t.std),
-    ]
-)
-
-val_cpu_transforms = transformsV2.Compose([transformsV2.ToImage()])
-
-val_gpu_transforms = lambda t: transformsV2.Compose(
-    [
-        # All the pipeline must be computed on UINT8, conversion at last
-        transformsV2.ToDtype(torch.float32, scale=True),
-        transformsV2.Normalize(mean=t.mean, std=t.std),
-    ]
-)
 
 ## Discarded:
 # White fill to differ less from the background
