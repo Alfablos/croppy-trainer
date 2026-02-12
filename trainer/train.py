@@ -82,7 +82,7 @@ class CroppyNet(
         #     # Adding not just one final layer but three, to give the model
         #     # enough parameters since data will be JPEG with degraded quality
         #     # and rotation!
-        #     Linear(in_features=512, out_features=256),  # adds non-linearity
+        #     Linear(in_features=512, out_features=256),
         #     ReLU(),
         #     Linear(in_features=256, out_features=64),
         #     ReLU(),
