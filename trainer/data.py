@@ -81,9 +81,9 @@ class SmartDocDataset(Dataset):
 def get_transforms(weights, device: Device, train=False):
     if device == Device.CPU:
         if train:
-            return config.train_cpu_transforms
+            return config.transforms['training']['cpu']
         else:
-            return config.val_cpu_transforms
+            return config.transforms['validation']['cpu']
     else:
         if weights is None:
             raise ValueError(
@@ -91,9 +91,9 @@ def get_transforms(weights, device: Device, train=False):
             )
         t = weights.transforms()
         if train:
-            return config.train_gpu_transforms(t)
+            return config.transforms['training']['gpu'](t)
         else:
-            return config.val_gpu_transforms(t)
+            return config.transforms['validation']['gpu'](t)
 
 
 def current_train_transforms(
