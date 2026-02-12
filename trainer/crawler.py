@@ -1,3 +1,13 @@
+import math
+
+from functools import partial
+from itertools import chain
+from os import cpu_count
+from tqdm.contrib.concurrent import process_map
+
+from concurrent.futures.process import ProcessPoolExecutor
+from typing import Any, Iterable, Callable
+
 import os
 import sys
 from pathlib import Path
@@ -13,6 +23,75 @@ import utils
 from utils import Device
 
 
+def chunks_from_list(l: Iterable[Any], n_chunks: int) -> list[Any]:
+    if n_chunks <= 0:
+        return []
+    l = list(l)
+    n = len(l)
+    # print(f"chunks_from_list: received {n} paths to split in {n_chunks} chunks.")
+
+    if n < n_chunks:
+        return [p for p in l]
+
+    chunk_size, remainder = (len(l) // n_chunks, len(l) % n_chunks)
+    
+    result = []
+    for i in range(n_chunks):
+
+        start = i * chunk_size
+        end = (i + 1) * chunk_size
+        result.append(l[start : end])
+    if remainder > 0:
+        result.append(l[n_chunks * chunk_size : ])
+
+    return result
+
+
+def process_chunk(
+        pairs: list[tuple],
+        compute_corners: bool,
+        coords_scale_percentage: float,
+        verbose: bool
+):
+    if verbose:
+        print(f"Runner: got {len(pairs)} objects.")
+    rows = []
+
+    for image, label in pairs:
+        try:
+            row = {"image_path": image, "label_path": label}
+
+            if compute_corners:
+                # if verbose:
+                #     print(f"Computing corners for path {label}")
+                mask = cv2.imread(filename=str(label), flags=cv2.IMREAD_GRAYSCALE)
+
+                coords = utils.coords_from_segmentation_mask(
+                    mask, device=Device.CPU, scale_percentage=coords_scale_percentage
+                )
+                fields = ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"]
+                for coord_name, value in zip(fields, coords):
+                    row[coord_name] = value
+
+            if compute_corners:
+                row["corners_recess_percentage"] = coords_scale_percentage
+            rows.append(row)
+        except KeyboardInterrupt:
+            if rows:
+                print("Execution stopped by user")
+                exit(0)
+    if verbose:
+        print(f"Runner: finished computing {len(pairs)} objects.")
+    return rows
+
+
+
+def _crawl_worker(payload):
+    f, args = payload
+    return f(args)
+
+
+
 def crawl(
     root: Path,
     output: str,
@@ -20,6 +99,7 @@ def crawl(
     labels_ext: str,
     coords_scale_percentage: float,
     limit: int | None,
+    chunks: int = math.floor(cpu_count() / 2),
     compute_corners=True,
     check_normalization=True,
     verbose=False,
@@ -105,54 +185,53 @@ def crawl(
     if verbose:
         print(f"Found {len(images)} images with labels.")
 
-    rows = []
-    save_chunk_size = 100
-
     if progress:
-        progress = tqdm(total=len(images), desc="Pairing examples and labels")
+        progress_bar = tqdm(total=len(images), desc="Pairing examples and labels")
 
     output_p = Path(output)
     if not output_p.parent.exists():
         output_p.parent.mkdir(parents=True)
 
-    for image, label in zip(images, labels, strict=True):
-        try:
-            row = {"image_path": image, "label_path": label}
-
-            if compute_corners:
-                mask = cv2.imread(filename=str(label), flags=cv2.IMREAD_GRAYSCALE)
-
-                coords = utils.coords_from_segmentation_mask(
-                    mask, device=Device.CPU, scale_percentage=coords_scale_percentage
-                )
-                fields = ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"]
-                for coord_name, value in zip(fields, coords):
-                    row[coord_name] = value
-
-            if compute_corners:
-                row["corners_recess_percentage"] = coords_scale_percentage
-            rows.append(row)
-
-            if progress:
-                progress.update(1)
-
-            if len(rows) >= save_chunk_size:
-                save_to_csv(rows, str(output))
-                rows = []
-
-        except KeyboardInterrupt:
-            if rows:
-                print("Saving remaining rows after user interruption...")
-                save_to_csv(rows, str(output))
-                print("Done.")
-                exit(0)
-    if rows:
-        save_to_csv(rows, str(output))
-
+    ## Parallelization
+    image_label_pairs = chunks_from_list(zip(images, labels, strict=True), chunks)
     if verbose:
-        print(
-            f"Done saving labels {'with coordinates' if compute_corners else ''} to {output}"
-        )
+        print(f"Split dataset into {len(image_label_pairs)} of {len(image_label_pairs[0])} paths each.")
+
+    task = partial(
+        process_chunk,
+        compute_corners=compute_corners,
+        coords_scale_percentage=coords_scale_percentage,
+        verbose=verbose
+    )
+
+    payload = [(task, pair) for pair in image_label_pairs]
+    to_write = []
+
+    with ProcessPoolExecutor(max_workers=chunks) as executor:
+        compute_tasks = executor.map(_crawl_worker, payload)
+        if verbose:
+            print(f"Starting {chunks} workers...")
+
+    try:
+        returned = 0
+        # compute
+        for result in compute_tasks: # result is a chunk of paths and coordinates
+            returned += 1
+            print(f"Worker {returned} returned results of length {len(result)}.")
+            to_write.extend(result)
+            if progress:
+                progress_bar.update(len(result))
+
+    except KeyboardInterrupt:
+        print("User interrupted crawling.")
+        executor.shutdown(wait=False, cancel_futures=True)
+    finally:
+        if progress:
+            progress_bar.close()
+    if verbose:
+        print("Done crawling. Saving.")
+    save_to_csv(to_write, output, 'w')
+
 
 
 def save_to_csv(rows: list[dict], dst: str, mode="a"):

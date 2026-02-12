@@ -14,14 +14,15 @@ let
     .${purpose};
 
   # General variables
+  runCmd = "python croppy.py";
   architecture = "resnet";
   datasetLengths = {
     training = "22092";
     validation = "7430";
   };
   precomputeDataRoot = "~/Downloads/smartdoc15/extended_smartdoc_dataset";
-  verbose = false;
-  progress = true;
+  verbose = true;
+  progress = false;
   cpuCount = 16;
 
   # Precompute variables
@@ -29,24 +30,37 @@ let
     "./croppy_"
     + (if compact then "compact_" else "")
     + (if limit != "0" then limit else datasetLengths.training)
+    + "x"
+    + h
+    + "x"
+    + w
     + "_recess"
     + recess;
-  h = "512";
-  w = "384";
+  h = "512"; # "1024";
+  w = "512"; # "768";
   iext = "_in.png";
   lext = "_gt.png";
-  recess = "0.005";
+  recess = "0";
   computeCorners = true;
   strict = true;
-  compact = true;
+  compact =
+    if
+      (lib.strings.toLower store) == "lmdb" # while a simple copy is implemented to mimic compacting a lmdb store for an aroow store,
+    # --compact doesn't make sense for arrow stores
+    then
+      true
+    else
+      false;
   commitFrequency = "100";
   precomputeWorkers = toString cpuCount;
   limit = "0";
+  store = "arrow"; # also the file extension: .lmdb .arrow
 
-  # Train variables
+  # Training variables
+  trainLimit = "0";
   trainingOutputDir =
     "croppy_"
-    + (if limit == "0" then datasetLengths.training else limit)
+    + (if trainLimit == "0" then datasetLengths.training else trainLimit)
     + "x"
     + h
     + "x"
@@ -70,15 +84,17 @@ let
     + (if limit != "0" then limit else datasetLengths.${purpose})
     + "x${h}x${w}"
     + (if compact then "_compacted" else "")
-    + ".lmdb";
+    + "."
+    + lib.strings.toLower store;
   loss_function = "invariant_smooth_mae";
   learningRate = "0.0001";
   dropout = "0.25";
-  epochs = "30";
+  epochs = "100";
   workers = toString (cpuCount / 2);
-  batchSize = "128";
+  batchSize = "64";
   device = "gpu";
-  debug = "2";
+  debug = "5";
+  checkpoint = "5";
   tensorboard = true;
   hardValidation = true;
 
@@ -89,7 +105,7 @@ let
     in
     # ${if limit != "0" then "--limit ${limit} \\" else "\\"}
     ''
-      nix run . -- precompute \
+      ${runCmd} precompute \
         -o ${precomputeOutputDir} \
         --height ${h} \
         --width ${w} \
@@ -105,7 +121,7 @@ let
         ${if compact then "--compact" else ""} \
         --commit-frequency ${commitFrequency} \
         --workers ${precomputeWorkers} \
-        --recess ${recess} ${if limit != "0" then "--limit ${limit}" else ""}'' # no newline here!
+        --recess ${recess} ${if limit != "0" then "--limit ${limit} " else " "}'' # no newline here!
   ) purposes;
 
 in
@@ -117,7 +133,7 @@ pkgs.writeScript "quick-run" ''
   }
 
   train() {
-    nix run . -- train \
+    ${runCmd} train \
       --out-dir ${trainingOutputDir}  \
       --db ${storePath "training"} \
       --valdb ${storePath "validation"} \
@@ -133,7 +149,9 @@ pkgs.writeScript "quick-run" ''
       ${if progress then "--progress" else ""} \
       --device ${device} \
       ${if hardValidation then "--hard-validation" else ""} \
-      --debug ${debug}
+      ${if trainLimit != 0 then "--limit ${trainLimit}" else ""} \
+      ${if debug != 0 then "--debug ${debug}" else ""} \
+      ${if checkpoint != 0 then "--checkpoint ${checkpoint}" else ""} 
   }
 
 

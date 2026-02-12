@@ -10,11 +10,11 @@ import tqdm
 from loss import loss_from_str
 from architecture import Architecture
 from data import SmartDocDataset, get_transforms
-from typing import Callable
+from typing import Callable, Any
 
 import torch
 import torch.nn as nn
-from torch.nn import L1Loss, MSELoss
+from torch.nn import L1Loss, MSELoss, Flatten
 from torch.nn import Sequential, Sigmoid, Linear, ReLU, Dropout
 from torch.optim import Adam, Optimizer
 import torchvision.models as visionmodels
@@ -42,7 +42,7 @@ class CroppyNet(
     ):
         super().__init__()
 
-        self.weights = weights
+        # self.weights = weights
         self.architecture = architecture
         self.loss_fn = loss_fn
         self.target_device = target_device
@@ -50,29 +50,55 @@ class CroppyNet(
         self.images_width = images_width
         self.dropout = dropout
         self.learning_rate = learning_rate
-        self.model = visionmodels.resnet18(weights=weights, progress=True)
-        self.model.fc = Sequential(
-            Dropout(p=dropout),
-            # Adding not just one final layer but three, to give the model
-            # enough parameters since data will be JPEG with degraded quality
-            # and rotation!
-            Linear(in_features=512, out_features=256),  # adds non-linearity
+        self.weights = weights
+
+        # test: remove the pooling layer
+        # self.model = visionmodels.resnet18(weights=weights, progress=True)
+        self.model = visionmodels.resnet34(weights=weights)
+        self.model = nn.Sequential(*list(self.model.children())[:-2]) # exclude pooling layer and fully connected
+
+        # Resnet downsamples x32
+        if (images_height % 32 != 0) or (images_width % 32 != 0):
+            if architecture == Architecture.RESNET:
+                raise ValueError(f"Resnet requires images height and width to be divisible by 32! Current values: h = {images_height}, w = {images_width}")
+        h_for_layer = images_height / 32
+        w_for_layer = images_width / 32
+        # 389120 neurons for 1024x768
+        flat_size = int(h_for_layer * w_for_layer * 512) # (512 channels is the number of channels the output has before entering in the, replaced, maxpool layer)
+        self.fc = Sequential(
+            Flatten(),
+            Dropout(p=self.dropout),
+            Linear(in_features=flat_size, out_features=512), # replaces maxpool
+            ReLU(),
+            Linear(in_features=512, out_features=256),
             ReLU(),
             Linear(in_features=256, out_features=64),
             ReLU(),
-            # output = 8 because we have 8 coordinates:
-            # the document page has 8 coordinates, not 2 like in bounding boxes of object detection because the camera won't be EXACTLY orthogonal)
-            Linear(in_features=64, out_features=8),
-            # pure linear regression, no sigmoid, if corners fall outside the image
-            # handle via software values like x > width
-            # Sigmoid(),  # between 0 and 1 for each coordinate
-            # Sigmoid meaning: tell me exactly where I need to crop
-            # Linear meaning: tell me where the corners should be, I'll take it from here
+            Linear(in_features=64, out_features=8) # The coordinates (finally!)
         )
-        self.weights = weights
+
+        # self.model.fc = Sequential(
+        #     Dropout(p=dropout),
+        #     # Adding not just one final layer but three, to give the model
+        #     # enough parameters since data will be JPEG with degraded quality
+        #     # and rotation!
+        #     Linear(in_features=512, out_features=256),
+        #     ReLU(),
+        #     Linear(in_features=256, out_features=64),
+        #     ReLU(),
+        #     # output = 8 because we have 8 coordinates:
+        #     # the document page has 8 coordinates, not 2 like in bounding boxes of object detection because the camera won't be EXACTLY orthogonal)
+        #     Linear(in_features=64, out_features=8),
+        #     # pure linear regression, no sigmoid, if corners fall outside the image
+        #     # handle via software values like x > width
+        #     # Sigmoid(),  # between 0 and 1 for each coordinate
+        #     # Sigmoid meaning: tell me exactly where I need to crop
+        #     # Linear meaning: tell me where the corners should be, I'll take it from here
+        # )
 
     def forward(self, x):
-        return self.model(x)
+        x = self.model(x)
+        return self.fc(x)
 
     def loss_function(self):
         if isinstance(self.loss_fn, L1Loss):
@@ -100,6 +126,42 @@ class CroppyNet(
         return model.to(device.value)  # adds a validation step
 
 
+
+def save_checkpoint(
+    epoch_progress: tuple[int, int],
+    epoch_losses: tuple[ float, float | None],  # TODO: check the output type of loss functions
+    run_name: str,
+    out_dir: str,
+    model: CroppyNet,
+    optimizer: torch.optim.Optimizer
+):
+    epoch, epochs = epoch_progress
+    epoch_train_loss, epoch_val_loss = epoch_losses
+    
+    checkpoint_name = f"{run_name}_epoch_{epoch + 1}_of_{epochs}"
+    checkpoint_file = str(out_dir) + "/" + checkpoint_name + ".pth"
+    
+    checkpoint = {
+        "architecture": f"{model.architecture}",
+        "images_height": model.images_height,
+        "images_width": model.images_width,
+        "total_epochs": epochs,
+        "epoch": epoch + 1,
+        "loss_fn": model.loss_function(),
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "train_loss": epoch_train_loss,
+        "val_loss": epoch_val_loss,
+        "dropout": model.dropout,
+        "initial_learning_rate": model.learning_rate,
+        "current_learning_rate": optimizer.param_groups[0]["lr"]
+    }
+    
+    torch.save(checkpoint, checkpoint_file)
+
+
+
+
 @torch.no_grad()
 def validation_data(
     model,
@@ -121,7 +183,7 @@ def validation_data(
     for images, labels in loader:
         batch_n += 1
         if verbose:
-            print(f"Training: tarting batch {batch_n + 1} of {len(loader)}")
+            print(f"Training (validation): starting batch {batch_n} of {len(loader)}")
         images, labels = images.to(device.value), labels.to(device.value)
         h, w = images.shape[-2:]
         labels_wrapped = tv_tensors.KeyPoints(
@@ -157,6 +219,7 @@ def train(
     train_len: int,  # only to append the information to filename and specs
     hard_validation: bool,
     debug: int | None,
+    checkpoint: int | None,
     with_tensorboard: bool = False,
     verbose=False,
     progress=False,
@@ -170,6 +233,12 @@ def train(
         for k, v in locals().items():
             print(f"==> {k}: {v}")
             print()
+    
+    # Avoids division by 0 later on if debug or checkpoint are 0
+    if debug == 0:
+        debug = None
+    if checkpoint == 0:
+        checkpoint = None
 
     run_name = f"{model.architecture}_{model.loss_function()}_{model.dropout}dropout_{model.learning_rate}lr_{epochs}epochs_{train_len}x{model.images_height}x{model.images_width}"
     print(f"Starting run {run_name}")
@@ -208,7 +277,7 @@ def train(
     # implementing learning rate decay!
     # soft for now
     # TODO: integrate in the CLI or config file
-    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.1, patience=2)
+    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.1, patience=4)
 
     for epoch in epochs_iter:
         model.train()
@@ -240,7 +309,7 @@ def train(
                 batch_n += 1
                 if verbose:
                     print(
-                        f"Training: starting batch {batch_n + 1} of {len(train_dataloader)}"
+                        f"Training: starting batch {batch_n} of {len(train_dataloader)}"
                     )
                 images, labels = (
                     images.to(model.target_device.value),
@@ -333,24 +402,26 @@ def train(
                 global_step=epoch + 1,
             )
 
-        # Saving checkpoint
-        checkpoint_name = f"{run_name}_epoch_{epoch + 1}_of_{epochs}"
-        checkpoint_file = str(out_dir) + "/" + checkpoint_name + ".pth"
-        checkpoint = {
-            "architecture": f"{model.architecture}",
-            "images_height": model.images_height,
-            "images_width": model.images_width,
-            "total_epochs": epochs,
-            "epoch": epoch + 1,
-            "loss_fn": model.loss_function(),
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "train_loss": epoch_train_loss,
-            "val_loss": epoch_val_loss,
-            "dropout": model.dropout,
-            "initial_learning_rate": model.learning_rate,
-            "current_learning_rate": optimizer.param_groups[0]["lr"]
-        }
-        torch.save(checkpoint, checkpoint_file)
+        if checkpoint is not None and (epoch + 1) % checkpoint == 0:
+            if verbose:
+                print(f'Saving intermediate checkpoint. Epoch {epoch + 1} of {epochs}')
+            save_checkpoint(
+                epoch_progress=(epoch, epochs),
+                epoch_losses=(epoch_train_loss, epoch_val_loss),
+                run_name=run_name,
+                out_dir=out_dir,
+                model=model,
+                optimizer=optimizer
+            )
     if with_tensorboard:
         s_writer.close()
+    
+    print(f'Saving final checkpoint.')
+    save_checkpoint(
+        epoch_progress=(epochs, epochs),
+        epoch_losses=(epoch_train_loss, epoch_val_loss),
+        run_name=run_name,
+        out_dir=out_dir,
+        model=model,
+        optimizer=optimizer
+    )

@@ -3,10 +3,10 @@ from pathlib import Path
 from time import sleep
 
 import cv2
-import lmdb
 from numpy.typing import NDArray
 from torch.utils.data import DataLoader
 
+import storage
 import utils
 from architecture import Architecture
 from common import DEFAULT_WEIGHTS
@@ -64,6 +64,8 @@ def run_precompute(args):
             progress=args.progress,
             limit=args.limit,
         )
+    else:
+        print(f"Found data map file {data_map}. Skipping crawler.")
 
     precompute(
         architecture=Architecture.from_str(args.architecture),
@@ -89,15 +91,15 @@ def run_train(args):
     weights = DEFAULT_WEIGHTS
 
     # Retrieve height and width from the LMDB store
-    print(f"Opening LMDB store at {args.lmdb_path}")
-    env = lmdb.open(args.lmdb_path, lock=False, readahead=False, meminit=False)
-    with env.begin(write=False) as t:
-        h = int.from_bytes(t.get("h".encode("ascii")), "big")
-        w = int.from_bytes(t.get("w".encode("ascii"), "big"))
+    print(f"Opening store at {args.store_path}")
+    with storage.new_store(args.store_path, write=False) as store:
+        h = int(store.get_metadata('h'))
+        w = int(store.get_metadata('w'))
 
     print(f"Setting up training dataset...")
+
     resnet_train_ds = SmartDocDataset(
-        lmdb_path=args.lmdb_path,
+        store_path=args.store_path,
         architecture=Architecture.from_str(args.architecture),
         train=True,
         precision=Precision.from_str(args.precision),
@@ -112,23 +114,22 @@ def run_train(args):
         num_workers=args.workers,
     )
 
-    if args.validation_lmdb_path:
-        print(f"Setting up validation dataset...")
-        resnet_val_ds = SmartDocDataset(
-            lmdb_path=args.validation_lmdb_path,
-            architecture=Architecture.from_str(args.architecture),
-            train=args.hard_validation,
-            precision=Precision.from_str(args.precision),
-            limit=args.limit,
-        )
+    print(f"Setting up validation dataset...")
+    resnet_val_ds = SmartDocDataset(
+        store_path=args.validation_store_path,
+        architecture=Architecture.from_str(args.architecture),
+        train=args.hard_validation,
+        precision=Precision.from_str(args.precision),
+        limit=args.limit,
+    )
 
-        val_dataloader = DataLoader(
-            pin_memory=True,  # Using CUDA
-            dataset=resnet_val_ds,
-            shuffle=False,
-            batch_size=args.batch_size,
-            num_workers=args.workers,
-        )
+    val_dataloader = DataLoader(
+        pin_memory=True,  # Using CUDA
+        dataset=resnet_val_ds,
+        shuffle=False,
+        batch_size=args.batch_size,
+        num_workers=args.workers,
+    )
 
     model = CroppyNet(
         weights=weights,
@@ -153,6 +154,7 @@ def run_train(args):
         progress=args.progress,
         with_tensorboard=args.enable_tensorboard,
         debug=int(args.debug) if args.debug is not None else None,
+        checkpoint = args.checkpoint
     )
 
 
@@ -164,13 +166,13 @@ def run_predict(args):
     image = cv2.imread(args.path, cv2.IMREAD_COLOR)
     image: NDArray = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    resized_image: NDArray = Architecture.resize_image(
+    resized_image, original_shape = Architecture.resize_image(
         args.path,
         h=model.images_height,
         w=model.images_width,
         color=True,
-        resize=True,
         interpolation=cv2.INTER_AREA,
+        allow_padding=True
     )
 
     norm_coords = predict(

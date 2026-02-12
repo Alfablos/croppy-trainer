@@ -80,14 +80,14 @@ def batch_to_gpu(
         else:
             img = p
 
-        assert img.dtype == np.uint8(), (
-            "Should have a np.ndarray of np.uint8() at this point..."
+        assert img.dtype == np.uint8, (
+            "Should have a np.ndarray of np.uint8 at this point..."
         )
 
         h, w = img.shape
 
-        # While READING the image, since each pixel is in range 0-255 np.int8() (CPU first)
-        img = img.astype(np.uint8())
+        # While READING the image, since each pixel is in range 0-255 np.uint8 (CPU first)
+        img = img.astype(np.uint8)
 
         if precision != Precision.UINT8:
             img = img.astype(precision.to_type_cpu()) / 255.0
@@ -163,8 +163,8 @@ def compute_cpu(path: str, precision: Precision, verbose=False):
             filename=path,
             flags=cv2.IMREAD_GRAYSCALE,
         )  # RETURNS (H, W), NOT (W, H)!
-        # While READING the image, since each pixel is in range 0-255 np.int8() (CPU first)
-        image.astype(np.uint8())
+        # While READING the image, since each pixel is in range 0-255 np.int8 (CPU first)
+        image.astype(np.uint8)
         time_imload = time.time() - start_imload
         if verbose:
             logger.info(f"Loading an image from disk took {time_imload}")

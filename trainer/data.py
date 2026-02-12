@@ -1,33 +1,16 @@
-from PIL.Image import new
 import torchvision.tv_tensors
-from numpy.typing import NDArray
-from cffi.cparser import lock
 
 import common
 from architecture import Architecture
-import csv
-import json
-import pickle
-import lmdb
 from typing import Any, Optional, List, Callable, Never
-import os
-import sys
-from pathlib import Path
 
 import cv2
 import numpy as np
-import pandas as pd
 import torch
-from torch import nn
 from torch.utils.data import Dataset, DataLoader
-from torchvision.transforms import v2 as transformsV2
-import torchvision.models as visionmodels
-from tqdm import tqdm
 
-import utils
-from common import Device, Precision, DEFAULT_WEIGHTS
-from utils import assert_never
-from crawler import crawl
+from common import Device, Precision, DEFAULT_WEIGHTS, DEFAULT_STORAGE_CLASS
+import storage
 import config
 
 
@@ -36,11 +19,11 @@ import config
 
 
 class SmartDocDataset(Dataset):
-    supported_img_formats = ["png"]
+    supported_img_formats = ["png", 'jpg']
 
     def __init__(
         self,
-        lmdb_path: str,
+        store_path: str,
         architecture: Architecture,
         precision: Precision,
         train: bool,
@@ -51,31 +34,34 @@ class SmartDocDataset(Dataset):
         super().__init__()
 
         self.precision = precision
-        self.lmdb_path = lmdb_path
-        self.env = None  # opened on first __getitem__
-        self.limit = limit
+        self.store_path = store_path
+
+        with storage.new_store(store_path, write=False) as store:
+            self.len = len(store)
+        # cannot use self.store to aboid pytorch forking the pointer to an open store
+        self.store = None
+        self.limit = limit if limit != 0 else None
         self.train = train
 
     def __len__(self):
         if self.limit is not None:
-            return self.limit
+            # ensures that setting a limit of 100 on a 40 items DB
+            # doesn't tell pytorch that there actually are 100 items
+            return min(self.limit, self.len)
         else:
-            env = self._get_or_init_env()
-            with env.begin(write=False) as transaction:
-                return int.from_bytes(transaction.get("__len__".encode("ascii"), "big"))
+            return self.len
 
     def __getitem__(self, i):
-        img_idx = f"i{i}"
-        lbl_idx = f"l{i}"
-        # Note: reading back 'corners_recess_percentage', which was stored via struct
-        # corners_recess_percentage = struct.unpack('f', transaction.get("my_key".encode("ascii")))[0]
+        # self.store will stay around as long as the datastore instance is around
+        # __getitem__ is called after pytorch forks (if num_workers > 0)
+        if self.store is None:
+            self.store = storage.new_store(self.store_path, write=False).__enter__()
 
-        env = self._get_or_init_env()
-        with env.begin(write=False) as transaction:
-            image: NDArray = pickle.loads(
-                transaction.get(img_idx.encode("ascii"))
-            )  # shape = (h, w, 3)
-            label: NDArray = pickle.loads(transaction.get(lbl_idx.encode("ascii")))
+        image, label = self.store.get(i)  # shape = (h, w, 3)
+        # Tensorflow needs the underlying numpy array to be writable,
+        # while data coming directly from arrow and LMDB is memory-mapped and immutable
+        # copy creates a writable copy to system RAM
+        image, label = image.copy(), label.copy()
         h, w, _ = image.shape
         transforms = get_transforms(None, Device.CPU, self.train)
         image_tvtensor = transforms(image)  # shape is now (3, h, w)
@@ -91,23 +77,6 @@ class SmartDocDataset(Dataset):
             original_coords, canvas_size=(h, w), dtype=torch.float32
         )
         return image_tvtensor, label_tvtensor
-
-    def _get_or_init_env(self):
-        # The worker is FORKED by pytorch and if env is open at the time of the fork
-        # the handle is copied to. The problem is that at that point
-        # another process (forked) will try to access the first worker's memory:
-        # segmentation fault!
-        if self.env is None or self.env_pid != os.getpid():
-            self.env = lmdb.open(
-                self.lmdb_path,
-                readonly=True,
-                lock=False,
-                readahead=False,
-                meminit=False,
-            )
-            self.env_pid = os.getpid()
-        return self.env
-
 
 def get_transforms(weights, device: Device, train=False):
     if device == Device.CPU:
@@ -134,13 +103,9 @@ def current_train_transforms(
         img_np = cv2.imread(input_path, cv2.IMREAD_COLOR_BGR)
         img_np = cv2.cvtColor(img_np, cv2.COLOR_BGR2RGB)
     else:
-        key = f"i{input_path[1]}".encode("ascii")
+        with storage.new_store(input_path[0], write=False) as store:
+            img_np, _ = store.get(input_path[1])
         output_path = f"./{input_path[1]}_transformed.jpg"
-        env = lmdb.open(
-            input_path[0], readonly=True, lock=False, readahead=False, meminit=False
-        )
-        with env.begin(write=False) as t:
-            img_np: NDArray = pickle.loads(t.get(key))  # shape = (h, w, 3)
 
     ## CPU ##: from data.py
     transforms = get_transforms(None, Device.CPU, train=True)
@@ -178,11 +143,41 @@ def current_train_transforms(
     cv2.imwrite(output_path, result_bgr)
 
 
+def get_from_store(idx: int, path: str):
+    with storage.new_store(path, write=False) as store:
+        image, label = store.get(idx)
+    return image, label
+
+def get_store_len(store_path: str):
+    with storage.new_store(store_path, write=False) as store:
+        data_length = len(store)
+    return data_length
+
+def get_store_metadata(store_path: str, key: str):
+    with storage.new_store(store_path, write=False) as store:
+        return store.get_metadata(key)
+    
+
+
 if __name__ == "__main__":
-    current_train_transforms(
-        (
-            "./hires_compact/training_data/data_resnet_training_1000x1024x768_compacted.lmdb",
-            60,
-        ),  # input_path='/home/antonio/Downloads/2026-01-24-15-52-49-829.jpg',
-        output_path=None,
-    )
+    # current_train_transforms(
+    #     (
+    #         "./hires_compact/training_data/data_resnet_training_1000x1024x768_compacted.lmdb",
+    #         60,
+    #     ),  # input_path='/home/antonio/Downloads/2026-01-24-15-52-49-829.jpg',
+    #     output_path=None,
+    # )
+
+    db_path = 'croppy_100x512x512_recess0/training_data/data_resnet_training_100x512x512.arrow'
+    h, w = get_store_metadata(db_path, 'h'), get_store_metadata(db_path, 'w')
+    print('Images h =', h)
+    print('Images w =', w)
+    idx = 5
+    image, label = get_from_store(idx, db_path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    cv2.imwrite(f'{idx}.jpg', image)
+    print(label)
+    print('Store __len__:', get_store_len(db_path))
+
+
+

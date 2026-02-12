@@ -1,32 +1,18 @@
 from pathlib import Path
 
-import lmdb
 import os
-from sys import argv
-
-import pickle
-from pandas.tests.arrays.masked.test_arrow_compat import pa
-import time
-from enum import Enum
-from typing import List, Any, Literal, Never
-from itertools import chain
+from typing import List, Never
 
 from PIL import Image
-from tqdm import tqdm
 import cv2
 import numpy as np
 from numpy.typing import NDArray
 import torch
-from torch import nn
-from torch import functional as F
 import tensorboard
 
-from common import Device, Precision, DEFAULT_WEIGHTS, Purpose
+from common import Device, DEFAULT_WEIGHTS, DEFAULT_STORAGE_CLASS
+import storage
 
-
-
-def compact_lmdb(env, dst_path: str):
-    env.copy(dst_path, compact=True)
 
 
 def load_checkpoint(p: str, train: bool = False) -> dict:
@@ -45,6 +31,7 @@ def resize_img(img, h: int, w: int, interpolation=cv2.INTER_AREA):
         :param img: ndarray
         :param h:   int
         :param w:   int
+        :param interpolation: cv2 constant. Defaults to cv2.INTER_AREA
     """
 
     return cv2.resize(img, (int(w), int(h)), interpolation=interpolation)
@@ -138,8 +125,8 @@ def coords_from_segmentation_mask(
         tr = white_xy[np.argmin(topright_to_bottomleft_diagonal)]  # Smallest y - x
         br = white_xy[np.argmax(topleft_to_bottoright_diagonal)]  # Largest x + y
         bl = white_xy[np.argmax(topright_to_bottomleft_diagonal)]  # Largest y - x
-        # return np.array([tl, tr, br, bl], dtype=np.float32()).flatten()
-        coords = np.array([tl, tr, br, bl], dtype=np.float32()).flatten()
+        # return np.array([tl, tr, br, bl], dtype=np.float32).flatten()
+        coords = np.array([tl, tr, br, bl], dtype=np.float32).flatten()
 
     scaled_coords = scale_to_center(coords, scale_percentage)
     return scaled_coords
@@ -267,47 +254,35 @@ def dump_training_batch(
 
 # AI generated
 def inspect_dataset(
-    lmdb_path: str, output_dir: str, start_idx: int = 0, count: int = 10
+    store_path: str, output_dir: str, start_idx: int = 0, count: int = 10
 ):
     """
     Reads raw images and labels from LMDB and draws the stored coordinates.
     """
-    if not os.path.exists(lmdb_path):
-        raise FileNotFoundError(f"LMDB path not found: {lmdb_path}")
+    if not os.path.exists(store_path):
+        raise FileNotFoundError(f"{DEFAULT_STORAGE_CLASS} path not found: {store_path}")
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Opening LMDB: {lmdb_path}")
-    env = lmdb.open(
-        lmdb_path, readonly=True, lock=False, readahead=False, meminit=False
-    )
+    print(f"Opening LMDB: {store_path}")
 
-    with env.begin(write=False) as txn:
+    with storage.new_store(store_path, write=False) as store:
         # Get dataset length just to be sure
-        length_bytes = txn.get("__len__".encode("ascii"))
-        if length_bytes:
-            total_len = int.from_bytes(length_bytes, "big")
-            print(f"Dataset reports length: {total_len}")
+        total_len = len(store)
+        print(f"Dataset reports length: {total_len}")
 
         for i in range(start_idx, start_idx + count):
             img_key = f"i{i}".encode("ascii")
             lbl_key = f"l{i}".encode("ascii")
 
-            img_bytes = txn.get(img_key)
-            lbl_bytes = txn.get(lbl_key)
-
-            if not img_bytes or not lbl_bytes:
-                print(f"Skipping index {i}: Data not found.")
-                continue
+            image, label = store.get(i)
 
             # 1. Load Raw Data
             # Image is typically (H, W, 3) BGR/RGB depending on how you saved it
             # Your crawler saves as RGB usually, but OpenCV needs BGR to save.
-            image = pickle.loads(img_bytes)
 
             # Label should be raw coords (8,) or (4, 2)
-            label = pickle.loads(lbl_bytes)
 
             # 2. Process Image for Drawing
             # Ensure it's contiguous and uint8
@@ -364,27 +339,29 @@ def inspect_dataset(
             cv2.imwrite(str(out_path), viz_image)
             print(f"Saved {out_path} | Label range: {label.min()} - {label.max()}")
 
-    env.close()
 
 
-def lmdb_get_int(key: str, lmdb_path: str):
-    env = lmdb.open(
-        lmdb_path, readonly=True, lock=False, readahead=False, meminit=False
-    )
+def get_resize_params(original_h: int, original_w: int, target_h: int, target_w: int) -> tuple[int, int, int, int, float]:
+    height_ratio: float = target_h / original_h
+    width_ratio: float = target_w / original_w
+    scale: float = min(height_ratio, width_ratio)
+    
+    new_h = int(original_h * scale)
+    new_w = int(original_w * scale)
+    
+    pad_h = target_h - new_h
+    pad_w = target_w - new_w
+    
+    return new_h, new_w, pad_h, pad_w, scale
 
-    with env.begin(write=False) as t:
-        val = t.get(key.encode("ascii"))
-        if val is None:
-            print("Not found.")
-            exit(1)
-        print(int.from_bytes(val, "big"))
+
+
 
 
 if __name__ == "__main__":
-    LMDB_PATH = "./hires_compact/training_data/data_resnet_training_1000x1024x768_compacted.lmdb"
+    LMDB_PATH = 'croppy_compact_40x1024x768_recess0/training_data/data_resnet_training_40x1024x768.lmdb'
 
-    inspect_dataset(
-        lmdb_path=LMDB_PATH, output_dir="./hires_dump/train", start_idx=0, count=20
-    )
+    # inspect_dataset(
+    #     lmdb_path=LMDB_PATH, output_dir="./lmdb_dumps/train", start_idx=0, count=40
+    # )
 
-    # lmdb_get_int('h', './hires_compact/training_data/data_resnet_training_22092x1024x768_compacted.lmdb')

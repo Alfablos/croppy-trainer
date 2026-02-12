@@ -5,7 +5,8 @@ import numpy as np
 import torch
 import torchvision.models as visionmodels
 
-DEFAULT_WEIGHTS = visionmodels.ResNet18_Weights.DEFAULT
+DEFAULT_WEIGHTS = visionmodels.ResNet34_Weights.DEFAULT
+DEFAULT_STORAGE_CLASS = 'arrow'
 
 
 def device_from_obj(x: torch.Tensor | np.ndarray):
@@ -91,11 +92,11 @@ class Precision(Enum):
 
     def to_type_cpu(self) -> np.dtype[Any]:
         if self == Precision.FP32:
-            return np.float32()
+            return np.float32
         elif self == Precision.FP16:
-            return np.float16()
+            return np.float16
         elif self == Precision.UINT8:
-            return np.uint8()
+            return np.uint8
         else:
             raise NotImplementedError(
                 f"No type associated with {self} for CPU. This is a bug!"
