@@ -1,3 +1,5 @@
+
+from jinja2.nodes import List
 import math
 
 from functools import partial
@@ -18,9 +20,10 @@ import cv2
 from tqdm import tqdm
 
 
-from common import Precision, Purpose
+from common import Precision, Purpose, LabelType
 import utils
 from utils import Device
+from data import DataSource, DataRow
 
 
 def chunks_from_list(l: Iterable[Any], n_chunks: int) -> list[Any]:
@@ -47,41 +50,43 @@ def chunks_from_list(l: Iterable[Any], n_chunks: int) -> list[Any]:
 
 
 def process_chunk(
-    pairs: list[tuple],
-    compute_corners: bool,
-    coords_scale_percentage: float,
+    rows: list[DataRow],
+    label_type: LabelType,
     verbose: bool,
 ):
     if verbose:
-        print(f"Runner: got {len(pairs)} objects.")
-    rows = []
+        print(f"Runner: got {len(rows)} objects.")
+    computed_rows = []
 
-    for image, label in pairs:
+    for row in rows:
         try:
-            row = {"image_path": image, "label_path": label}
+            row = row.to_dict()
 
-            if compute_corners:
+            if label_type == LabelType.COORDINATES:
+                if row.get('label_path') is None:
+                    raise ValueError('Cannot compute corner coordinates if label_path is none.')
+                    
                 # if verbose:
                 #     print(f"Computing corners for path {label}")
-                mask = cv2.imread(filename=str(label), flags=cv2.IMREAD_GRAYSCALE)
+                mask = cv2.imread(filename=str(row['label_path']), flags=cv2.IMREAD_GRAYSCALE)
 
                 coords = utils.coords_from_segmentation_mask(
-                    mask, device=Device.CPU, scale_percentage=coords_scale_percentage
+                    mask, device=Device.CPU, scale_percentage=row['coords_scale_percentage']
                 )
                 fields = ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"]
                 for coord_name, value in zip(fields, coords):
                     row[coord_name] = value
-
-            if compute_corners:
-                row["corners_recess_percentage"] = coords_scale_percentage
-            rows.append(row)
+            else:
+                raise NotImplementedError # compute mask from coordinates
+            
+            computed_rows.append(row)
         except KeyboardInterrupt:
-            if rows:
+            if computed_rows:
                 print("Execution stopped by user")
                 exit(0)
     if verbose:
-        print(f"Runner: finished computing {len(pairs)} objects.")
-    return rows
+        print(f"Runner: finished computing {len(computed_rows)} objects.")
+    return computed_rows
 
 
 def _crawl_worker(payload):
@@ -90,7 +95,8 @@ def _crawl_worker(payload):
 
 
 def crawl(
-    root: Path,
+    # root: Path,
+    data_sources: List[DataSource],
     output: str,
     images_ext: str,
     labels_ext: str,
@@ -163,37 +169,45 @@ def crawl(
             "Please, provide the extension for labels. For example `.png` or `_lbl.png`"
         )
 
-    if not root.exists():
-        raise ValueError(f"Root path {root} does not exist.")
-
     if os.path.exists(output):
         print(f"Output file {output} esists. Refusing to continue.")
         exit(2)
 
-    images = sorted(list(root.glob("**/*" + images_ext)))
-    labels = sorted(list(root.glob("**/*" + labels_ext)))
-    n_images, n_labels = len(images), len(labels)
-    assert n_images == n_labels, "Images and labels differ in number."
+    rows = []
+    
+    for ds in data_sources:
+        ds_err = ds.check()
+        if ds_err:
+            raise RuntimeError(ds_err)
+        rows = ds.to_canonical(LabelType.COORDINATES if compute_corners else LabelType.MASK)
+        for row in rows:
+            rows.append(row)
+        
+    
+    # images = sorted(list(root.glob("**/*" + images_ext)))
+    # labels = sorted(list(root.glob("**/*" + labels_ext)))
+    # n_images, n_labels = len(images), len(labels)
+    # assert n_images == n_labels, "Images and labels differ in number."
+    
     # not very optimized for immense datasets!
     if limit:
-        images = images[:limit]
-        labels = labels[:limit]
+        rows = rows[:limit]
 
     if verbose:
-        print(f"Found {len(images)} images with labels.")
+        print(f"Found {len(rows)} images with labels.")
 
     if progress:
-        progress_bar = tqdm(total=len(images), desc="Pairing examples and labels")
+        progress_bar = tqdm(total=len(rows), desc="Pairing examples and labels")
 
     output_p = Path(output)
     if not output_p.parent.exists():
         output_p.parent.mkdir(parents=True)
 
     ## Parallelization
-    image_label_pairs = chunks_from_list(zip(images, labels, strict=True), chunks)
+    image_label_pairs = chunks_from_list(rows, chunks)
     if verbose:
         print(
-            f"Split dataset into {len(image_label_pairs)} of {len(image_label_pairs[0])} paths each."
+            f"Split dataset into {len(image_label_pairs)} batches of {len(image_label_pairs[0])} paths each."
         )
 
     task = partial(

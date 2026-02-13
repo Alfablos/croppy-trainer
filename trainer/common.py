@@ -13,6 +13,12 @@ def device_from_obj(x: torch.Tensor | np.ndarray):
     return x.device
 
 
+class LabelType(Enum):
+    COORDINATES = 'coordinates',
+    MASK = 'mask'
+
+
+
 class Purpose(Enum):
     TRAINING = "training"
     VALIDATION = "validation"
