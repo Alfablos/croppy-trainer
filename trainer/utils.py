@@ -57,7 +57,6 @@ def find_max_dims(paths: List[str]):
 
 def coords_from_segmentation_mask(
     mask: NDArray | torch.Tensor,
-    scale_percentage: float,
     device: Device = Device.CPU,
 ) -> torch.Tensor | NDArray:
     """
@@ -127,8 +126,7 @@ def coords_from_segmentation_mask(
         # return np.array([tl, tr, br, bl], dtype=np.float32).flatten()
         coords = np.array([tl, tr, br, bl], dtype=np.float32).flatten()
 
-    scaled_coords = scale_to_center(coords, scale_percentage)
-    return scaled_coords
+    return coords
     # # normalization
     # if gpu:
     #     corners = torch.stack([tl, tr, br, bl])
@@ -256,7 +254,7 @@ def inspect_dataset(
     store_path: str, output_dir: str, start_idx: int = 0, count: int = 10
 ):
     """
-    Reads raw images and labels from LMDB and draws the stored coordinates.
+    Reads raw images and labels from LMDB and draws the stored coordincompact_40x1024x768_recess0ates.
     """
     if not os.path.exists(store_path):
         raise FileNotFoundError(f"{DEFAULT_STORAGE_CLASS} path not found: {store_path}")
@@ -355,9 +353,13 @@ def get_resize_params(
     return new_h, new_w, pad_h, pad_w, scale
 
 
-if __name__ == "__main__":
-    LMDB_PATH = "croppy_compact_40x1024x768_recess0/training_data/data_resnet_training_40x1024x768.lmdb"
 
-    # inspect_dataset(
-    #     lmdb_path=LMDB_PATH, output_dir="./lmdb_dumps/train", start_idx=0, count=40
-    # )
+
+
+
+if __name__ == "__main__":
+    LMDB_PATH = "croppy_512x512/training_data/data_resnet_training_512x512.arrow"
+
+    inspect_dataset(
+        store_path=LMDB_PATH, output_dir="./lmdb_dumps/train", start_idx=26000, count=1
+    )

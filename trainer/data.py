@@ -1,9 +1,6 @@
 import pandas as pd
 from numpy.typing import NDArray
-from sympy import Float
-from dataclasses import dataclass
 import torchvision.tv_tensors
-from abc import ABCMeta, abstractmethod
 
 import common
 from architecture import Architecture
@@ -14,95 +11,13 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from common import Device, Precision, LabelType, DEFAULT_WEIGHTS, DEFAULT_STORAGE_CLASS
+from common import Device, Precision, DEFAULT_WEIGHTS, DEFAULT_STORAGE_CLASS
 import storage
 import config
 
 
 # Smartphone use a 0.75 (3:4) ratio
 # ResNet reduces the input by a factor of 32 (12/16)
-
-@dataclass
-class DataRow():
-    def __init__(
-        self,
-        image_path: str,
-        label_path: str | None,
-        tl_x: float | None,
-        tl_y: float | None,
-        tr_x: float | None,
-        tr_y: float | None,
-        br_x: float | None,
-        br_y: float | None,
-        bl_x: float | None,
-        bl_y: float | None,
-        corner_recess_percentage: float | None
-    ):
-        self.image_path = image_path
-        self.label_path = label_path
-        self.tl_x = tl_x
-        self.tl_y = tl_y
-        self.tr_x = tr_x
-        self.tr_y = tr_y
-        self.br_x = br_x
-        self.br_y = br_y
-        self.bl_x = bl_x
-        self.bl_y = bl_y
-        self.corner_recess_percentage = 0.0 if corner_recess_percentage else corner_recess_percentage
-    
-    def to_dict(self):
-        return {
-            'image_path': self.image_path,
-            'label_path': self.label_path,
-            'x1': self.tl_x,
-            'y1': self.tl_y,
-            'x2': self.tr_x,
-            'y2': self.tr_y,
-            'x3': self.br_x,
-            'y3': self.br_y,
-            'x4': self.bl_x,
-            'y4': self.bl_y,
-            'corners_recess_percentage': self.corner_recess_percentage
-        }
-
-
-
-@dataclass
-class DataSource(ABCMeta):
-    def __subclasshook__(cls, subclass):
-        return (
-            hasattr(subclass, "__init__")
-            and callable(subclass.__init__)
-            and hasattr(subclass, "check")
-            and callable(subclass.check)
-            and hasattr(subclass, "fetch")
-            and callable(subclass.fetch)
-            or NotImplemented
-        )
-    
-    @abstractmethod
-    def __init__(self, name: str, root_path: str, metadata_file: str | None, corner_recess_percentage):
-        pass
-    
-    @abstractmethod
-    def check(self) -> str | None: # return error as a string
-        pass
-    
-    @abstractmethod
-    def fetch(self, label_type: LabelType) -> List[DataRow]:
-        """
-            Transforms the dataset into a canonical data source that can be instructed to
-            compute masks or coordinates
-            Args:
-                label_type: coordinates or mask
-            Returns:
-                List[RowData]: a list of RowData.
-        """
-        pass
-    
-    
-        
-    
 
 
 class SmartDocDataset(Dataset):
@@ -257,11 +172,11 @@ if __name__ == "__main__":
     #     output_path=None,
     # )
 
-    db_path = "croppy_100x512x512_recess0/training_data/data_resnet_training_100x512x512.arrow"
+    db_path = "croppy_512x512/training_data/data_resnet_training_512x512.arrow"
     h, w = get_store_metadata(db_path, "h"), get_store_metadata(db_path, "w")
     print("Images h =", h)
     print("Images w =", w)
-    idx = 5
+    idx = 26000
     image, label = get_from_store(idx, db_path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     cv2.imwrite(f"{idx}.jpg", image)
