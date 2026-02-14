@@ -186,6 +186,8 @@ def validation_data(
     hard: bool,
     debug_fn: Callable | None,
     visual_debug_path: str,
+    s_writer: SummaryWriter | None = None,
+    epoch: int = 0,
 ) -> float:
     model.eval()
     val_loss = 0.0
@@ -222,6 +224,12 @@ def validation_data(
             img_dict = debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end])
             for fname, data in img_dict.items():
                 cv2.imwrite(visual_debug_path + f"/validation_{fname}", data)
+                if s_writer is not None:
+                    # BGR -> RGB for TensorBoard
+                    rgb = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
+                    s_writer.add_image(
+                        f"validation/{fname}", rgb, global_step=epoch + 1, dataformats="HWC"
+                    )
 
     return val_loss / len(loader)
 
@@ -384,6 +392,11 @@ def train(
                         cv2.imwrite(
                             f"{visual_debug_training_path}/training_{fname}", data
                         )
+                        if with_tensorboard:
+                            rgb = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
+                            s_writer.add_image(
+                                f"training/{fname}", rgb, global_step=epoch + 1, dataformats="HWC"
+                            )
 
             if progress:
                 sub_bar.close()
@@ -401,6 +414,8 @@ def train(
                 hard=hard_validation,
                 debug_fn=debug_fn if debug and (epoch + 1) % debug == 0 else None,
                 visual_debug_path=visual_debug_validation_path,
+                s_writer=s_writer if with_tensorboard else None,
+                epoch=epoch,
             )
             scheduler.step(epoch_val_loss)
         except KeyboardInterrupt:
