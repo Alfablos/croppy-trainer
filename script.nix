@@ -6,8 +6,8 @@ let
   runCmd = "python croppy.py";
   architecture = "resnet";
 
-  verbose = true;
-  progress = false;
+  verbose = false;
+  progress = true;
   cpuCount = 16;
 
   # Precompute variables
@@ -58,10 +58,10 @@ let
   dropout = "0.25";
   epochs = "100";
   workers = toString (cpuCount / 2);
-  batch_size = "64";
+  batch_size = "128";
   device = "gpu";
-  debug = "5";
-  checkpoint = "5";
+  debug = "3";
+  checkpoint = "3";
   tensorboard = true;
   hard_validation = true;
 

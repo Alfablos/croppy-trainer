@@ -66,6 +66,9 @@ class CroppyNet(
             *list(self.model.children())[:-2]
         )  # exclude pooling layer and fully connected
 
+        for param in self.model.parameters():
+            param.requires_grad = False
+
         # Resnet downsamples x32
         if (images_height % 32 != 0) or (images_width % 32 != 0):
             if architecture == Architecture.RESNET:
@@ -85,9 +88,11 @@ class CroppyNet(
             Linear(in_features=8192, out_features=1024),  # replaces maxpool
             BatchNorm1d(1024),
             ReLU(),
+            Dropout(p=self.dropout),
             Linear(in_features=1024, out_features=256),
             BatchNorm1d(256),
             ReLU(),
+            Dropout(p=self.dropout),
             Linear(in_features=256, out_features=8),
             Sigmoid()
         )
