@@ -58,7 +58,7 @@ let
   dropout = "0.25";
   epochs = "100";
   workers = toString (cpuCount / 2);
-  batch_size = "128";
+  batch_size = "192";
   device = "gpu";
   debug = "3";
   checkpoint = "3";
