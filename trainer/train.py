@@ -60,8 +60,8 @@ class CroppyNet(
         self.weights = weights
 
         # test: remove the pooling layer
-        # self.model = visionmodels.resnet18(weights=weights, progress=True)
-        self.model = visionmodels.resnet34(weights=weights)
+        self.model = visionmodels.resnet18(weights=weights, progress=True)
+        # self.model = visionmodels.resnet34(weights=weights)
         self.model = nn.Sequential(
             *list(self.model.children())[:-2]
         )  # exclude pooling layer and fully connected
