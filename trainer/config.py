@@ -186,24 +186,24 @@ DATA_SOURCES: dict[str, list[DataSource]] = {
             name="smartdoc_extended_train",
             root_path="/home/antonio/Downloads/smartdoc15/extended_smartdoc_dataset/train",
         ),
-        SmartDocDataSource(
-            name="smartdoc_original_train",
-            root_path="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/smart_doc_extracted/images",
-            metadata_file="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/frame_data.csv",
-            split=(0, 0.8),  # first 80%
-        )
+        # SmartDocDataSource(
+        #     name="smartdoc_original_train",
+        #     root_path="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/smart_doc_extracted/images",
+        #     metadata_file="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/frame_data.csv",
+        #     split=(0, 0.8),  # first 80%
+        # )
     ],
     "validation": [
         SmartDocExtendedDataSource(
             name="smartdoc_extended_validation",
             root_path="/home/antonio/Downloads/smartdoc15/extended_smartdoc_dataset/validation",
         ),
-        SmartDocDataSource(
-            name="smartdoc_original_val",
-            root_path="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/smart_doc_extracted/images",
-            metadata_file="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/frame_data.csv",
-            split=(0.8, 1.0),  # last 20%
-        )
+        # SmartDocDataSource(
+        #     name="smartdoc_original_val",
+        #     root_path="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/smart_doc_extracted/images",
+        #     metadata_file="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/frame_data.csv",
+        #     split=(0.8, 1.0),  # last 20%
+        # )
     ]
 }
 
@@ -214,21 +214,22 @@ transforms = {
         "cpu": transformsV2.Compose(
             [
                 transformsV2.ToImage(),
-                transformsV2.JPEG(quality=[50, 100]),  # CPU-bound, cannot run on GPU
-                transformsV2.ColorJitter(brightness=0.5, contrast=0.8, saturation=0.4),
-                # transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
+                # transformsV2.JPEG(quality=[70, 100]),  # CPU-bound, cannot run on GPU
+                # transformsV2.ColorJitter(brightness=0.5, contrast=0.8, saturation=0.4),
+                # # transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
             ]
         ),
         "gpu": lambda t: transformsV2.Compose(
             [
-                transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
-                transformsV2.ElasticTransform(alpha=15.0),
-                transformsV2.RandomPerspective(
-                    distortion_scale=0.25, p=0.5, fill=(255, 255, 255)
-                ),  # p=0.5 => half of the dataset is affected
-                # All the pipeline must be computed on UINT8, conversion at last
+                # transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
+                # transformsV2.ElasticTransform(alpha=15.0),
+                # transformsV2.RandomPerspective(
+                #     distortion_scale=0.25, p=0.3, fill=(255, 255, 255)
+                # ),  # p=0.5 => half of the dataset is affected
+                # # All the pipeline must be computed on UINT8, conversion at last
+                # transformsV2.ToDtype(torch.float32, scale=True),
+                # transformsV2.GaussianNoise(),  # needs float input or turns uint8 into floats!
                 transformsV2.ToDtype(torch.float32, scale=True),
-                transformsV2.GaussianNoise(),  # needs float input or turns uint8 into floats!
                 transformsV2.Normalize(mean=t.mean, std=t.std),
             ]
         ),

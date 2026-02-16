@@ -471,3 +471,10 @@ def train(
         model=model,
         optimizer=optimizer,
     )
+
+
+
+if __name__ == '__main__':
+    resnet = visionmodels.resnet34(weights='IMAGENET1K_V1')
+    print(resnet)
+
