@@ -171,7 +171,7 @@ if __name__ == "__main__":
         "-H",
         action="store_true",
         required=False,
-        default=True,
+        default=False,
         help="Perform the same transforms as the train set on the validation set, making it harder for the model to get a good score",
     )
     train_cmd.add_argument(
