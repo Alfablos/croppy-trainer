@@ -111,11 +111,11 @@ def loss_from_str(s: str, **loss_opts):
     if any(
         [alias in s_lower for alias in smooth_mae_aliases]
     ):  # must be evaluated before MAE
-        base_loss = SmoothL1Loss(**{**loss_opts, "reduction": "none"})
+        base_loss = SmoothL1Loss(**{**loss_opts, "reduction": reduction})
     elif any([alias in s_lower for alias in mae_aliases]):
-        base_loss = L1Loss(**{**loss_opts, "reduction": "none"})
+        base_loss = L1Loss(**{**loss_opts, "reduction": reduction})
     elif any([alias in s_lower for alias in mse_aliases]):
-        base_loss = MSELoss(**{**loss_opts, "reduction": "none"})
+        base_loss = MSELoss(**{**loss_opts, "reduction": reduction})
     else:
         raise ValueError(f"Unknown loss function: {s}")
 
