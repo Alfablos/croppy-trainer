@@ -1,11 +1,19 @@
-from typing import Any
+from __future__ import annotations
+
+from typing import Any, List, Optional, TYPE_CHECKING
 from enum import Enum
+from abc import ABCMeta, abstractmethod
+from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    from architecture import Architecture
 
 import numpy as np
 import torch
 import torchvision.models as visionmodels
 
-DEFAULT_WEIGHTS = visionmodels.ResNet34_Weights.DEFAULT
+# DEFAULT_WEIGHTS = visionmodels.ResNet34_Weights.DEFAULT
+DEFAULT_WEIGHTS = visionmodels.ResNet18_Weights.DEFAULT
 DEFAULT_STORAGE_CLASS = "arrow"
 
 
@@ -113,3 +121,71 @@ class Precision(Enum):
             raise NotImplementedError(
                 f"No type associated with {self} for GPU. This is a bug!"
             )
+
+
+@dataclass
+class DataRow:
+    def __init__(
+        self,
+        image_path: str,
+        label_path: str | None,
+        tl_x: float | None,
+        tl_y: float | None,
+        tr_x: float | None,
+        tr_y: float | None,
+        br_x: float | None,
+        br_y: float | None,
+        bl_x: float | None,
+        bl_y: float | None,
+    ):
+        self.image_path = image_path
+        self.label_path = label_path
+        self.tl_x = tl_x
+        self.tl_y = tl_y
+        self.tr_x = tr_x
+        self.tr_y = tr_y
+        self.br_x = br_x
+        self.br_y = br_y
+        self.bl_x = bl_x
+        self.bl_y = bl_y
+
+    def to_dict(self):
+        return {
+            "image_path": self.image_path,
+            "label_path": self.label_path,
+            "x1": self.tl_x,
+            "y1": self.tl_y,
+            "x2": self.tr_x,
+            "y2": self.tr_y,
+            "x3": self.br_x,
+            "y3": self.br_y,
+            "x4": self.bl_x,
+            "y4": self.bl_y,
+        }
+
+
+class DataSource(metaclass=ABCMeta):
+    @abstractmethod
+    def __init__(
+        self,
+        name: str,
+        root_path: str,
+    ):
+        pass
+
+    @abstractmethod
+    def check(self) -> str | None:  # return error as a string
+        pass
+
+    @abstractmethod
+    def fetch(self, architecture: Architecture) -> List[DataRow]:
+        """
+        Transforms the dataset into a canonical data source.
+        The architecture determines what fields are required:
+        - 'coordinates' (resnet): x1..y4 must be present
+        - 'mask' (unet): label_path must be present
+
+        Returns:
+            List[DataRow]: a list of DataRow.
+        """
+        pass

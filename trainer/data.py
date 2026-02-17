@@ -1,8 +1,10 @@
+import pandas as pd
+from numpy.typing import NDArray
 import torchvision.tv_tensors
 
 import common
 from architecture import Architecture
-from typing import Any, Optional, List, Callable, Never
+from typing import Any, Optional, List, Callable, Never, Tuple
 
 import cv2
 import numpy as np
@@ -170,11 +172,11 @@ if __name__ == "__main__":
     #     output_path=None,
     # )
 
-    db_path = "croppy_100x512x512_recess0/training_data/data_resnet_training_100x512x512.arrow"
+    db_path = "croppy_512x512/training_data/data_resnet_training_512x512.arrow"
     h, w = get_store_metadata(db_path, "h"), get_store_metadata(db_path, "w")
     print("Images h =", h)
     print("Images w =", w)
-    idx = 5
+    idx = 26000
     image, label = get_from_store(idx, db_path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     cv2.imwrite(f"{idx}.jpg", image)

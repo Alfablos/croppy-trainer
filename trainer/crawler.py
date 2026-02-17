@@ -18,7 +18,8 @@ import cv2
 from tqdm import tqdm
 
 
-from common import Precision, Purpose
+from architecture import Architecture
+from common import Precision, Purpose, DataSource, DataRow
 import utils
 from utils import Device
 
@@ -47,41 +48,66 @@ def chunks_from_list(l: Iterable[Any], n_chunks: int) -> list[Any]:
 
 
 def process_chunk(
-    pairs: list[tuple],
-    compute_corners: bool,
-    coords_scale_percentage: float,
+    rows: list[dict],
+    label_type: str,
     verbose: bool,
 ):
     if verbose:
-        print(f"Runner: got {len(pairs)} objects.")
-    rows = []
+        print(f"Runner: got {len(rows)} objects.")
+    computed_rows = []
 
-    for image, label in pairs:
+    for row in rows:
         try:
-            row = {"image_path": image, "label_path": label}
+            # Check if coordinates are already present
+            has_coords = (
+                row.get("x1") is not None
+                and row.get("y1") is not None
+                and row.get("x2") is not None
+                and row.get("y2") is not None
+                and row.get("x3") is not None
+                and row.get("y3") is not None
+                and row.get("x4") is not None
+                and row.get("y4") is not None
+            )
 
-            if compute_corners:
-                # if verbose:
-                #     print(f"Computing corners for path {label}")
-                mask = cv2.imread(filename=str(label), flags=cv2.IMREAD_GRAYSCALE)
+            if label_type == "coordinates":
+                if has_coords:
+                    # Already have coordinates, just pass through
+                    pass
+                else:
+                    if row.get("label_path") is None:
+                        # Cannot compute coords without mask and don't have coords
+                        raise ValueError(
+                            f"Cannot compute corner coordinates for {row.get('image_path')}: no label_path and no pre-computed coordinates."
+                        )
 
-                coords = utils.coords_from_segmentation_mask(
-                    mask, device=Device.CPU, scale_percentage=coords_scale_percentage
-                )
-                fields = ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"]
-                for coord_name, value in zip(fields, coords):
-                    row[coord_name] = value
+                    mask = cv2.imread(
+                        filename=str(row["label_path"]), flags=cv2.IMREAD_GRAYSCALE
+                    )
 
-            if compute_corners:
-                row["corners_recess_percentage"] = coords_scale_percentage
-            rows.append(row)
+                    coords = utils.coords_from_segmentation_mask(
+                        mask,
+                        device=Device.CPU,
+                    )
+                    fields = ["x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"]
+                    for coord_name, value in zip(fields, coords):
+                        row[coord_name] = value
+            else:
+                # TODO: Implement mask generation from coordinates if needed
+                raise NotImplementedError("Generating masks is not supported yet")
+
+            computed_rows.append(row)
         except KeyboardInterrupt:
-            if rows:
+            if computed_rows:
                 print("Execution stopped by user")
                 exit(0)
+        except Exception as e:
+            print(f"Error processing row {row.get('image_path')}: {e}")
+            continue
+
     if verbose:
-        print(f"Runner: finished computing {len(pairs)} objects.")
-    return rows
+        print(f"Runner: finished computing {len(computed_rows)} objects.")
+    return computed_rows
 
 
 def _crawl_worker(payload):
@@ -90,116 +116,63 @@ def _crawl_worker(payload):
 
 
 def crawl(
-    root: Path,
+    data_sources: list[DataSource],
+    architecture: Architecture,
     output: str,
-    images_ext: str,
-    labels_ext: str,
-    coords_scale_percentage: float,
     limit: int | None,
     chunks: int = math.floor(cpu_count() / 2),
-    compute_corners=True,
     check_normalization=True,
     verbose=False,
     progress=False,
 ):
     """
-    Crawls a directory structure to find and pair image files with their corresponding label files, optionally computes normalized document corner coordinates from segmentation masks, and saves the results to a CSV file.
-
-    The function implements checkpointing by saving intermediate results every 100 rows, and handles KeyboardInterrupt gracefully by saving any remaining processed rows before exiting.
-
-    Args:
-        root (Path): Root directory path to search for image and label files. Must exist.
-        output (str): Path to the output CSV file where results will be saved. The file must not already exist to  accidental overwrites.
-        images_ext (str): Extension pattern to match image files (e.g., `.png`, `_img.png`).
-            This is used with glob patterns to find images recursively.
-        labels_ext (str): Extension pattern to match label/segmentation mask files
-            (e.g., `.png`, `_lbl.png`). Labels must match images in number and be pairable by
-            their sorted order.
-        coords_scale_percentage (float): how much the corners should move towards the center in the labels. Helps compensate
-            the model error preventing background pixels to sneak in the final image.
-        limit (int, optional): limits the numer of examples collected. Defaults to None, crawling the whole directory.
-        compute_corners (bool, optional): If True, computes normalized corner coordinates (x1, y1,
-            x2, y2, x3, y3, x4, y4) from segmentation masks using `utils.coords_from_segmentation_mask`.
-            If False, only saves image and label paths without coordinates. Defaults to True.
-        check_normalization (bool, optional): If True and `precision` is not UINT8, warns when
-            computed coordinates have values > 1, indicating potential normalization issues in the
-            preprocessing pipeline. Defaults to True.
-        verbose (bool, optional): If True, prints progress information and uses tqdm to show a
-            progress bar. Defaults to False.
-        progress (bool, optional): If true, shows a progress bar. Defaults to False.
-
-    Raises:
-        ValueError: If `images_ext` is None.
-        ValueError: If `labels_ext` is None.
-        ValueError: If the root directory does not exist.
-        AssertionError: If the number of images and labels found do not match.
-        SystemExit: Exits with code 2 if the output file already exists.
-        SystemExit: Exits with code 0 on KeyboardInterrupt after saving remaining rows.
-
-    Side Effects:
-        - Creates/appends to a CSV file at `output` path containing columns:
-            * image_path (Path): Path to the image file
-            * label_path (Path): Path to the label file
-            * x1, y1, x2, y2, x3, y3, x4, y4 (float, optional): Normalized corner coordinates
-              if `compute_corners` is True
-        - Prints progress and warning messages to stdout/stderr if `verbose` is True
-        - Loads segmentation masks from disk for coordinate computation
-
-    Notes:
-        - Images and labels are paired by their sorted order using `strict=True` in zip.
-        - Segmentation masks are loaded as grayscale and normalized to [0, 1] range for FP32/FP16,
-          or kept as raw uint8 values for UINT8 precision.
-        - Corner coordinates are computed assuming rectangular/squared documents that may be
-          rotated. The coordinates represent the four corners in normalized [0, 1] space.
-        - The function saves intermediate results every 100 rows to provide checkpointing in
-          case of interruptions.
+    Crawls multiple data sources to find and pair image files with their corresponding labels (masks or coordinates),
+    optionally computes normalized document corner coordinates from segmentation masks, and saves the results to a CSV file.
     """
-    if images_ext is None:
-        raise ValueError(
-            "Please, provide the extension for images. For example `.png` or `_img.png`"
-        )
-    if labels_ext is None:
-        raise ValueError(
-            "Please, provide the extension for labels. For example `.png` or `_lbl.png`"
-        )
-
-    if not root.exists():
-        raise ValueError(f"Root path {root} does not exist.")
 
     if os.path.exists(output):
-        print(f"Output file {output} esists. Refusing to continue.")
+        print(f"Output file {output} exists. Refusing to continue.")
         exit(2)
 
-    images = sorted(list(root.glob("**/*" + images_ext)))
-    labels = sorted(list(root.glob("**/*" + labels_ext)))
-    n_images, n_labels = len(images), len(labels)
-    assert n_images == n_labels, "Images and labels differ in number."
+    all_rows = []
+
+    label_type = architecture.label_type
+
+    for ds in data_sources:
+        if verbose:
+            print(f"Fetching from source: {ds.name}")
+
+        ds_err = ds.check()
+        if ds_err:
+            raise RuntimeError(ds_err)
+
+        ds_rows = ds.fetch(architecture)
+        # Convert DataRow objects to dicts for processing/serialization
+        all_rows.extend([r.to_dict() for r in ds_rows])
+
     # not very optimized for immense datasets!
     if limit:
-        images = images[:limit]
-        labels = labels[:limit]
+        all_rows = all_rows[:limit]
 
     if verbose:
-        print(f"Found {len(images)} images with labels.")
+        print(f"Found {len(all_rows)} total examples.")
 
     if progress:
-        progress_bar = tqdm(total=len(images), desc="Pairing examples and labels")
+        progress_bar = tqdm(total=len(all_rows), desc="Processing examples")
 
     output_p = Path(output)
     if not output_p.parent.exists():
         output_p.parent.mkdir(parents=True)
 
     ## Parallelization
-    image_label_pairs = chunks_from_list(zip(images, labels, strict=True), chunks)
+    # Split list of dicts into chunks
+    image_label_pairs = chunks_from_list(all_rows, chunks)
     if verbose:
-        print(
-            f"Split dataset into {len(image_label_pairs)} of {len(image_label_pairs[0])} paths each."
-        )
+        print(f"Split dataset into {len(image_label_pairs)} batches.")
 
     task = partial(
         process_chunk,
-        compute_corners=compute_corners,
-        coords_scale_percentage=coords_scale_percentage,
+        label_type=label_type,
         verbose=verbose,
     )
 
@@ -211,22 +184,26 @@ def crawl(
         if verbose:
             print(f"Starting {chunks} workers...")
 
-    try:
-        returned = 0
-        # compute
-        for result in compute_tasks:  # result is a chunk of paths and coordinates
-            returned += 1
-            print(f"Worker {returned} returned results of length {len(result)}.")
-            to_write.extend(result)
-            if progress:
-                progress_bar.update(len(result))
+        try:
+            returned = 0
+            # compute
+            for result in compute_tasks:  # result is a chunk of processed rows
+                returned += 1
+                if verbose:
+                    print(
+                        f"Worker {returned} returned results of length {len(result)}."
+                    )
+                to_write.extend(result)
+                if progress:
+                    progress_bar.update(len(result))
 
-    except KeyboardInterrupt:
-        print("User interrupted crawling.")
-        executor.shutdown(wait=False, cancel_futures=True)
-    finally:
-        if progress:
-            progress_bar.close()
+        except KeyboardInterrupt:
+            print("User interrupted crawling.")
+            executor.shutdown(wait=False, cancel_futures=True)
+        finally:
+            if progress:
+                progress_bar.close()
+
     if verbose:
         print("Done crawling. Saving.")
     save_to_csv(to_write, output, "w")

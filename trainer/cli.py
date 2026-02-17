@@ -18,15 +18,16 @@ from loss import loss_from_str
 from preprocessor import precompute
 from train import train, CroppyNet
 
+import config
+
 
 def run_crawl(args):
+    # Standalone crawl: flatten all sources across all purposes
+    all_sources = [s for sources in config.DATA_SOURCES.values() for s in sources]
     crawl(
-        root=Path(args.data_root),
-        images_ext=args.image_extension,
-        labels_ext=args.label_extension,
+        data_sources=all_sources,
+        architecture=Architecture.from_str(args.architecture),
         output=args.output,
-        compute_corners=args.compute_corners,
-        coords_scale_percentage=float(args.corners_recess_percentage),
         check_normalization=args.check_normalization,
         verbose=args.verbose,
         progress=args.progress,
@@ -35,71 +36,79 @@ def run_crawl(args):
 
 
 def run_precompute(args):
-    crawler_output = f"{args.output_dir.rstrip('/')}/dataset_{str(args.architecture)}_{args.purpose}.csv"
-    if not args.data_map:
-        data_map = crawler_output
-    else:
-        data_map = args.data_map
+    architecture = Architecture.from_str(args.architecture)
+    output_dir = args.output_dir.rstrip("/")
 
-    if not os.path.exists(data_map):
-        print(
-            f"Crawler output not found at {crawler_output}, data needs to be crawled first."
-        )
-        print(
-            f"If you have already crawled your data root rename the output file to `{crawler_output}`."
-        )
-        print(
-            f"waiting 5 seconds before starting to crawl, interrupt now if you don't wish to continue."
-        )
-        sleep(5)
-        crawl(
-            root=Path(args.data_root),
-            output=data_map,
-            images_ext=args.image_extension,
-            labels_ext=args.label_extension,
-            compute_corners=args.compute_corners,
-            coords_scale_percentage=float(args.corners_recess_percentage),
-            check_normalization=args.check_normalization,
+    for purpose_key, sources in config.DATA_SOURCES.items():
+        combined_csv = f"{output_dir}/dataset_{str(architecture)}_{purpose_key}.csv"
+
+        # Crawl each source into its own CSV (skip if already exists):
+        # prevents having to start all from scratch in case of an error
+        # in later sources
+        source_csvs = []
+        needs_merge = False
+        for source in sources:
+            source_csv = f"{output_dir}/crawl_{source.name}.csv"
+            source_csvs.append(source_csv)
+
+            if not os.path.exists(source_csv):
+                print(
+                    f"[{purpose_key}] Crawling source '{source.name}'..."
+                )
+                crawl(
+                    data_sources=[source],
+                    architecture=architecture,
+                    output=source_csv,
+                    check_normalization=args.check_normalization,
+                    verbose=args.verbose,
+                    progress=args.progress,
+                    limit=args.limit,
+                )
+                needs_merge = True
+            else:
+                print(f"[{purpose_key}] Found existing crawl for '{source.name}'. Skipping.")
+
+        # Merge per-source CSVs into a combined CSV for precompute
+        if needs_merge or not os.path.exists(combined_csv):
+            import pandas as pd
+            frames = [pd.read_csv(csv) for csv in source_csvs if os.path.exists(csv)]
+            merged = pd.concat(frames, ignore_index=True)
+            merged.to_csv(combined_csv, index=False)
+            print(f"[{purpose_key}] Merged {len(frames)} source(s) into {combined_csv} ({len(merged)} rows).")
+
+        precompute(
+            architecture=architecture,
+            output_dir=output_dir,
+            target_h=args.target_height,
+            target_w=args.target_width,
+            dataset_map_csv=combined_csv,
+            dry_run=args.dry_run,
+            purpose=Purpose.from_str(purpose_key),
             verbose=args.verbose,
             progress=args.progress,
-            limit=args.limit,
+            strict=args.strict,
+            n_workers=args.workers,
+            commit_freq=args.commit_frequency,
+            compact_store=args.compact_store,
         )
-    else:
-        print(f"Found data map file {data_map}. Skipping crawler.")
 
-    precompute(
-        architecture=Architecture.from_str(args.architecture),
-        output_dir=args.output_dir,
-        target_h=args.target_height,
-        target_w=args.target_width,
-        dataset_map_csv=crawler_output,
-        dry_run=args.dry_run,
-        purpose=Purpose.from_str(args.purpose),
-        verbose=args.verbose,
-        progress=args.progress,
-        compute_corners=args.compute_corners,
-        coords_scale_percentage=float(args.corners_recess_percentage),
-        strict=args.strict,
-        n_workers=args.workers,
-        commit_freq=args.commit_frequency,
-        compact_store=args.compact_store,
-    )
+        print(f"\n[{purpose_key}] Precomputation complete.\n")
 
 
 def run_train(args):
     print("Starting training job...")
     weights = DEFAULT_WEIGHTS
 
-    # Retrieve height and width from the LMDB store
-    print(f"Opening store at {args.store_path}")
-    with storage.new_store(args.store_path, write=False) as store:
+    # Retrieve height and width from the store
+    print(f"Opening store at {args.training_store_path}")
+    with storage.new_store(args.training_store_path, write=False) as store:
         h = int(store.get_metadata("h"))
         w = int(store.get_metadata("w"))
 
     print(f"Setting up training dataset...")
 
     resnet_train_ds = SmartDocDataset(
-        store_path=args.store_path,
+        store_path=args.training_store_path,
         architecture=Architecture.from_str(args.architecture),
         train=True,
         precision=Precision.from_str(args.precision),

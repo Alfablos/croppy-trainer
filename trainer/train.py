@@ -15,7 +15,7 @@ from typing import Callable, Any
 import torch
 import torch.nn as nn
 from torch.nn import L1Loss, MSELoss, Flatten
-from torch.nn import Sequential, Sigmoid, Linear, ReLU, Dropout
+from torch.nn import Sequential, Sigmoid, Linear, ReLU, Dropout, BatchNorm1d, AdaptiveAvgPool2d
 from torch.optim import Adam, Optimizer
 import torchvision.models as visionmodels
 from torch.utils.data import Dataset, DataLoader
@@ -29,6 +29,13 @@ from loss import PermutationInvariantLoss
 class CroppyNet(
     nn.Module
 ):  # TODO: make it architecture-agnostic: take in base_model and fully_connected_layers to set self.model.fc
+# Replace Flatten() with AdaptiveAvgPool2d(4) before flattening. This gives 4×4×512 = 8,192 features — preserves a coarse spatial grid while being 16× smaller. Then Linear(8192, 512) is far more tractable. Alternatively, add a Conv2d(512, 64, 1) (1×1 conv) before flattening to reduce channels: 64×16×16 = 16,384 features, keeping full spatial resolution at lower cost.
+
+# RandomPerspective(distortion_scale=0.5, p=0.7) — distortion_scale=0.5 is extreme. It can move corners by up to 25% of the image dimension. At 70% probability, most training samples are heavily distorted. The model learns "roughly where corners are" but can't learn sub-pixel precision because the ground truth corners themselves are in wildly different positions each epoch => use 0.15-0.25
+
+# ElasticTransform(alpha=40.0) — warps the image locally. Fine for classification robustness, but it moves the exact corner locations in non-rigid ways, making it harder to learn precise corner regression => use alpha=15.0
+# What ElasticTransform does: It applies a random displacement field — each pixel gets nudged in a random direction by a random amount. At alpha=40.0, pixels can be displaced by up to ~40px. Crucially, since you're using torchvision v2 with KeyPoints, the corner coordinates are correctly displaced alongside the image. So there's no label noise — the ground truth is still accurate.
+# What I meant: After elastic distortion, the document's edges become wavy/curved — they're no longer straight lines. The "corners" still exist as keypoints, but they're now corners of a wobbly shape that doesn't look like a real document. In real life, a phone camera produces perspective distortion (which RandomPerspective simulates well), but never elastic/wavy distortion. So the model spends capacity learning to handle a distortion type it'll never see in production
     def __init__(
         self,
         weights,
@@ -53,11 +60,14 @@ class CroppyNet(
         self.weights = weights
 
         # test: remove the pooling layer
-        # self.model = visionmodels.resnet18(weights=weights, progress=True)
-        self.model = visionmodels.resnet34(weights=weights)
+        self.model = visionmodels.resnet18(weights=weights, progress=True)
+        # self.model = visionmodels.resnet34(weights=weights)
         self.model = nn.Sequential(
             *list(self.model.children())[:-2]
         )  # exclude pooling layer and fully connected
+
+        for param in self.model.parameters():
+            param.requires_grad = False
 
         # Resnet downsamples x32
         if (images_height % 32 != 0) or (images_width % 32 != 0):
@@ -68,19 +78,23 @@ class CroppyNet(
         h_for_layer = images_height / 32
         w_for_layer = images_width / 32
         # 389120 neurons for 1024x768
-        flat_size = int(
-            h_for_layer * w_for_layer * 512
-        )  # (512 channels is the number of channels the output has before entering in the, replaced, maxpool layer)
+        # flat_size = int(
+        #     h_for_layer * w_for_layer * 512
+        # )  # (512 channels is the number of channels the output has before entering in the, replaced, maxpool layer)
         self.fc = Sequential(
+            AdaptiveAvgPool2d(4),
             Flatten(),
             Dropout(p=self.dropout),
-            Linear(in_features=flat_size, out_features=512),  # replaces maxpool
+            Linear(in_features=8192, out_features=1024),  # replaces maxpool
+            BatchNorm1d(1024),
             ReLU(),
-            Linear(in_features=512, out_features=256),
+            Dropout(p=self.dropout),
+            Linear(in_features=1024, out_features=256),
+            BatchNorm1d(256),
             ReLU(),
-            Linear(in_features=256, out_features=64),
-            ReLU(),
-            Linear(in_features=64, out_features=8),  # The coordinates (finally!)
+            Dropout(p=self.dropout),
+            Linear(in_features=256, out_features=8),
+            Sigmoid()
         )
 
         # self.model.fc = Sequential(
@@ -177,6 +191,8 @@ def validation_data(
     hard: bool,
     debug_fn: Callable | None,
     visual_debug_path: str,
+    s_writer: SummaryWriter | None = None,
+    epoch: int = 0,
 ) -> float:
     model.eval()
     val_loss = 0.0
@@ -213,6 +229,12 @@ def validation_data(
             img_dict = debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end])
             for fname, data in img_dict.items():
                 cv2.imwrite(visual_debug_path + f"/validation_{fname}", data)
+                if s_writer is not None:
+                    # BGR -> RGB for TensorBoard
+                    rgb = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
+                    s_writer.add_image(
+                        f"validation/{fname}", rgb, global_step=epoch + 1, dataformats="HWC"
+                    )
 
     return val_loss / len(loader)
 
@@ -284,7 +306,10 @@ def train(
     # implementing learning rate decay!
     # soft for now
     # TODO: integrate in the CLI or config file
-    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.1, patience=4)
+    
+    # ReduceLROnPlateau(factor=0.1, patience=4) drops the LR by 10× after just 4 stalled epochs. For a regression task with augmentation, loss plateaus are normal, and the LR may drop too fast — locking the model into a suboptimal solution before it converges.
+    # Fix: Try factor=0.5, patience=8 for a gentler decay. Or switch to CosineAnnealingLR which is generally better for fine-grained convergence.
+    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=8)
 
     for epoch in epochs_iter:
         model.train()
@@ -372,6 +397,11 @@ def train(
                         cv2.imwrite(
                             f"{visual_debug_training_path}/training_{fname}", data
                         )
+                        if with_tensorboard:
+                            rgb = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
+                            s_writer.add_image(
+                                f"training/{fname}", rgb, global_step=epoch + 1, dataformats="HWC"
+                            )
 
             if progress:
                 sub_bar.close()
@@ -389,6 +419,8 @@ def train(
                 hard=hard_validation,
                 debug_fn=debug_fn if debug and (epoch + 1) % debug == 0 else None,
                 visual_debug_path=visual_debug_validation_path,
+                s_writer=s_writer if with_tensorboard else None,
+                epoch=epoch,
             )
             scheduler.step(epoch_val_loss)
         except KeyboardInterrupt:
@@ -439,3 +471,10 @@ def train(
         model=model,
         optimizer=optimizer,
     )
+
+
+
+if __name__ == '__main__':
+    resnet = visionmodels.resnet34(weights='IMAGENET1K_V1')
+    print(resnet)
+

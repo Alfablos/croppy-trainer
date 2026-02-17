@@ -1,9 +1,6 @@
 import torch
 from multiprocessing import cpu_count
 from cli import run_crawl, run_precompute, run_train, run_predict
-import subprocess
-from sympy.printing.pretty.pretty_symbology import sup
-from jinja2.nodes import FromImport
 import argparse
 from pathlib import Path
 
@@ -40,48 +37,15 @@ if __name__ == "__main__":
         "precompute", aliases=["pc"], help="Prepare dataset for training"
     )
 
-    preprocess_or_both = precompute_cmd.add_mutually_exclusive_group(required=True)
-    preprocess_or_both.add_argument(
-        "--data-map", "-m", help="Path to an existing index CSV (skips crawling)"
-    )
-    preprocess_or_both.add_argument(
-        "--data-root", "-r", help="Root directory to scan for images (triggers crawler)"
-    )
+    # Crawling is always done per-purpose from DATA_SOURCES in config.py
 
-    crawl_cmd.add_argument("--data-root", "--root", "-r", required=True)
-    crawl_cmd.add_argument(
-        "--corners-recess-percentage",
-        "--corners-recess",
-        "--corners-reduction-percentage",
-        "--corners-reduction",
-        "--recess",
-        "--reduction",
-        "-R",
-        required=False,
-        default=0.0,
-        help="how much the corners should move towards the center in the labels."
-        + "Helps compensate the model error, preventing background pixels to sneak in the final image.",
-    )
-    crawl_cmd.add_argument(
-        "--image-extension",
-        "--image-ext",
-        "--iext",
-        "-i",
-        required=True,
-        help="The final part common to all image file names. E.g. '_train.png'",
-    )
-    crawl_cmd.add_argument(
-        "--label-extension",
-        "--label-ext",
-        "--lext",
-        "-l",
-        required=True,
-        help="The final part common to all label file names. E.g. '_train_label.png'",
-    )
     crawl_cmd.add_argument(
         "-o", "--output", required=True, help="Where to save the CSV file"
     )
-    crawl_cmd.add_argument("--compute-corners", "-c", action="store_true")
+    crawl_cmd.add_argument(
+        "--architecture", "--arch", "-a", required=True,
+        help="Model architecture (resnet or unet), determines what label data to compute"
+    )
     crawl_cmd.add_argument("--check-normalization", "-n", action="store_true")
     crawl_cmd.add_argument(
         "--verbose", "-v", action="store_true", required=False, default=False
@@ -95,37 +59,7 @@ if __name__ == "__main__":
     crawl_cmd.set_defaults(func=run_crawl)
 
     ## precompute (crawler options) ## # the options of the crawler are only read if --csv is not set
-    precompute_cmd.add_argument("--compute-corners", "-c", action="store_true")
-    precompute_cmd.add_argument(
-        "--corners-recess-percentage",
-        "--corners-recess",
-        "--corners-reduction-percentage",
-        "--corners-reduction",
-        "--recess",
-        "--reduction",
-        "-R",
-        required=False,
-        default=0.05,
-        help="how much the corners should move towards the center in the labels."
-        + "Helps compensate the model error, preventing background pixels to sneak in the final image.",
-    )
     precompute_cmd.add_argument("--check-normalization", "-n", action="store_true")
-    precompute_cmd.add_argument(
-        "--image-extension",
-        "--image-ext",
-        "--iext",
-        "-i",
-        required=True,
-        help="The final part common to all image file names. E.g. '_train.png'",
-    )
-    precompute_cmd.add_argument(
-        "--label-extension",
-        "--label-ext",
-        "--lext",
-        "-l",
-        required=True,
-        help="The final part common to all label file names. E.g. '_train_label.png'",
-    )
 
     # true precompute_cmd arguments
     precompute_cmd.add_argument(
@@ -149,8 +83,8 @@ if __name__ == "__main__":
         "-s",
         required=False,
         default=True,
-        action="store_true",
-        help="Error if a single image fails to be processed.",
+        action=argparse.BooleanOptionalAction,
+        help="Error if a single image fails to be processed. Use --no-strict to skip bad images.",
     )
     precompute_cmd.add_argument(
         "--workers",
@@ -162,7 +96,7 @@ if __name__ == "__main__":
         type=int,
         default=cpu_count(),
     )
-    precompute_cmd.add_argument("--purpose", "-P", required=True, type=str)
+
     precompute_cmd.add_argument(
         "--compact-store",
         "--compact-database",
@@ -237,7 +171,7 @@ if __name__ == "__main__":
         "-H",
         action="store_true",
         required=False,
-        default=True,
+        default=False,
         help="Perform the same transforms as the train set on the validation set, making it harder for the model to get a good score",
     )
     train_cmd.add_argument(

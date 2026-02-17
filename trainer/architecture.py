@@ -27,9 +27,19 @@ class Architecture(Enum):
     def __str__(self):
         return self.value
 
+    @property
+    def label_type(self) -> str:
+        """Returns the type of label associated with the architecture. 'coordinates' for Resnet and 'mask' for Unet."""
+        if self == Architecture.RESNET:
+            return "coordinates"
+        elif self == Architecture.UNET:
+            return "mask"
+        else:
+            assert_never(self)
+
     def get_transform_logic(
-        self, coords_scale_percentage: float
-    ) -> Callable[[dict, int, int, int | float], ProcessResult]:
+        self,
+    ) -> Callable[[dict, int, int], ProcessResult]:
         if self == Architecture.RESNET:
             return self._transform_resnet
         # elif self == Architecture.UNET:
@@ -113,7 +123,7 @@ class Architecture(Enum):
         return img_resized, original_shape
 
     @staticmethod
-    def _transform_resnet(row, h: int, w: int, coords_scale_percentage: float):
+    def _transform_resnet(row, h: int, w: int):
         """
         Resize the image and return the coordinates from the mask.
         """
@@ -137,7 +147,7 @@ class Architecture(Enum):
                 raise RuntimeError(f"Could not read label mask at {row['label_path']}")
 
             coords = coords_from_segmentation_mask(
-                mask, device=Device.CPU, scale_percentage=coords_scale_percentage
+                mask, device=Device.CPU,
             )
             if isinstance(coords, torch.Tensor):
                 coords: NDArray = coords.numpy()

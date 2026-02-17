@@ -23,14 +23,13 @@ from architecture import Architecture, ProcessResult
 
 def worker(
     row: dict,
-    transform_fn: Callable[[dict, int, int, float], ProcessResult],
-    coords_scale_percentage: float,
+    transform_fn: Callable[[dict, int, int], ProcessResult],
     target_h: int,
     target_w: int,
     strict: bool,
 ) -> tuple[dict, NDArray, NDArray] | None:
     try:
-        result = transform_fn(row, target_h, target_w, coords_scale_percentage)
+        result = transform_fn(row, target_h, target_w)
         img, label = result.image, result.label
         return row, img, label
     except Exception as e:
@@ -49,18 +48,12 @@ def precompute(
     # weight of the training images
     target_w: int,
     dataset_map_csv: str,
-    coords_scale_percentage: float,
     # Every how many iterations data is written to disk
     commit_freq: int = 100,
     # No actual computation
     dry_run: bool = False,
     verbose: bool = False,
     progress: bool = False,
-    # Whether the output should contain corners coords
-    # If true they'll be computed if the csv does not contain them alread
-    # If csv_path is none so the file will be computed and will
-    # contain the coordinates depending on this value
-    compute_corners: bool = True,
     strict: bool = True,
     n_workers: int = int(cpu_count() / 2),
     compact_store: bool = False,
@@ -100,7 +93,7 @@ def precompute(
 
     db_path_noext = (
         str(output_dir)
-        + f"/data_{architecture.value}_{str(purpose)}_{data_length}x{target_h}x{target_w}"
+        + f"/data_{architecture.value}_{str(purpose)}_{target_h}x{target_w}"
     )
     db_path = db_path_noext + "." + DEFAULT_STORAGE_CLASS
 
@@ -162,19 +155,17 @@ def precompute(
     db_index = 0  # NOT updated when images fail to convert (if not strict)
     # transaction = env.begin(write=True)
 
-    transform = architecture.get_transform_logic(coords_scale_percentage)
+    transform = architecture.get_transform_logic()
 
     worker_f = partial(
         worker,
         transform_fn=transform,
-        coords_scale_percentage=coords_scale_percentage,
         target_h=target_h,
         target_w=target_w,
         strict=strict,
     )
 
     store = storage.new_store(db_path, write=True)
-    store.set_metadata("corners_recess_percentage", str(coords_scale_percentage))
     store.set_metadata("size", str(total_map_size))
     store.set_metadata("h", str(target_h))
     store.set_metadata("w", str(target_w))
@@ -191,7 +182,7 @@ def precompute(
             try:
                 for result in result_iter:
                     if not result:
-                        if verbose:
+                        if progress:
                             bar.update(1)
                         continue
 

@@ -147,7 +147,7 @@ def compute_gpu(batch: List[str], vram_commitment, precision):
                 minibatch_size = tensor.shape[0]
                 for img in range(minibatch_size):
                     _ = coords_from_segmentation_mask(
-                        tensor[img], scale_percentage=1.0, device=Device.CUDA
+                        tensor[img], device=Device.CUDA
                     )
                     workbar.update(1)
                 del tensor
@@ -177,7 +177,7 @@ def compute_cpu(path: str, precision: Precision, verbose=False):
 
         start_compute_time = time.time()
         whites = coords_from_segmentation_mask(
-            image, scale_percentage=1.0, device=Device.CPU
+            image, device=Device.CPU
         )
         compute_time = time.time() - start_compute_time
         if verbose:
