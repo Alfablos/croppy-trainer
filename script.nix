@@ -37,8 +37,6 @@ let
     + w
     + "_learningRate-"
     + learning_rate
-    + "_dropout-"
-    + dropout
     + "_loss-"
     + loss_function
     + "_epochs-"
@@ -56,7 +54,6 @@ let
   # loss_function = "invariant_smooth_mae";
   loss_function = "invariant_mae";
   learning_rate = "0.0001";
-  dropout = "0.25";
   epochs = "100";
   workers = toString (cpuCount / 2);
   batch_size = "192";
@@ -102,7 +99,6 @@ let
         loss_function
         learning_rate
         batch_size
-        dropout
         epochs
         workers
         verbose
@@ -136,7 +132,6 @@ pkgs.writeScript "quick-run" ''
       --architecture ${architecture} \
       --loss-function ${loss_function} \
       --learning-rate ${learning_rate} \
-      --dropout ${dropout} \
       --epochs ${epochs} \
       --workers ${workers} \
       --batch-size ${batch_size} \

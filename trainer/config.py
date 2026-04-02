@@ -2,6 +2,8 @@ from pathlib import Path
 from typing import List
 
 import torch
+import torch.nn as nn
+import torchvision.models as visionmodels
 from torchvision.transforms import v2 as transformsV2
 
 import cv2
@@ -250,3 +252,38 @@ transforms = {
 # White fill to differ less from the background
 # transformsV2.RandomRotation(degrees=(0, 100), fill=255), # let's try but I'm not sure... see https://docs.pytorch.org/vision/main/auto_examples/transforms/plot_rotated_box_transforms.html
 # transformsV2.RandomAffine(degrees=(0, 100), fill=255),
+
+
+### Model Architecture ###
+backbone_model_fn = visionmodels.resnet18
+backbone_weights = visionmodels.ResNet18_Weights.DEFAULT
+freeze_backbone = True
+backbone_output_channels = 512  # resnet18/34 → 512, resnet50+ → 2048
+
+### FC Head ###
+dropout = 0.25
+
+head = nn.Sequential(
+    nn.AdaptiveAvgPool2d(4),         # 512 × h × w  →  512 × 4 × 4
+    nn.Flatten(),                     # → 8192
+    nn.Dropout(p=dropout),
+    nn.Linear(8192, 1024),
+    nn.BatchNorm1d(1024),
+    nn.ReLU(),
+    nn.Dropout(p=dropout),
+    nn.Linear(1024, 256),
+    nn.BatchNorm1d(256),
+    nn.ReLU(),
+    nn.Dropout(p=dropout),
+    nn.Linear(256, 8),               # 4 corners × 2 coordinates
+)
+
+### Optimizer ###
+weight_decay = 1e-4
+
+### LR Scheduler ###
+# factor=0.5 + patience=8: gentler than the aggressive 0.1/4 combo,
+# avoids locking into suboptimal solutions during normal plateau periods
+scheduler_factor = 0.5
+scheduler_patience = 8
+scheduler_mode = "min"

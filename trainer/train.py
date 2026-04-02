@@ -21,8 +21,9 @@ import torchvision.models as visionmodels
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
+import config
 import utils
-from common import Device, DEFAULT_WEIGHTS
+from common import Device
 from loss import PermutationInvariantLoss
 
 
@@ -38,36 +39,33 @@ class CroppyNet(
 # What I meant: After elastic distortion, the document's edges become wavy/curved — they're no longer straight lines. The "corners" still exist as keypoints, but they're now corners of a wobbly shape that doesn't look like a real document. In real life, a phone camera produces perspective distortion (which RandomPerspective simulates well), but never elastic/wavy distortion. So the model spends capacity learning to handle a distortion type it'll never see in production
     def __init__(
         self,
-        weights,
         architecture: Architecture,
         loss_fn: Callable,
         target_device: Device,
         images_height: int,
         images_width: int,
-        dropout: float,
         learning_rate: float,
     ):
         super().__init__()
 
-        # self.weights = weights
         self.architecture = architecture
         self.loss_fn = loss_fn
         self.target_device = target_device
         self.images_height: int = images_height
         self.images_width = images_width
-        self.dropout = dropout
+        self.dropout = config.dropout
         self.learning_rate = learning_rate
-        self.weights = weights
+        self.weights = config.backbone_weights
 
-        # test: remove the pooling layer
-        self.model = visionmodels.resnet18(weights=weights, progress=True)
-        # self.model = visionmodels.resnet34(weights=weights)
+        # Backbone
+        base = config.backbone_model_fn(weights=config.backbone_weights, progress=True)
         self.model = nn.Sequential(
-            *list(self.model.children())[:-2]
+            *list(base.children())[:-2]
         )  # exclude pooling layer and fully connected
 
-        for param in self.model.parameters():
-            param.requires_grad = False
+        if config.freeze_backbone:
+            for param in self.model.parameters():
+                param.requires_grad = False
 
         # Resnet downsamples x32
         if (images_height % 32 != 0) or (images_width % 32 != 0):
@@ -75,26 +73,8 @@ class CroppyNet(
                 raise ValueError(
                     f"Resnet requires images height and width to be divisible by 32! Current values: h = {images_height}, w = {images_width}"
                 )
-        h_for_layer = images_height / 32
-        w_for_layer = images_width / 32
-        # 389120 neurons for 1024x768
-        # flat_size = int(
-        #     h_for_layer * w_for_layer * 512
-        # )  # (512 channels is the number of channels the output has before entering in the, replaced, maxpool layer)
-        self.fc = Sequential(
-            AdaptiveAvgPool2d(4),
-            Flatten(),
-            Dropout(p=self.dropout),
-            Linear(in_features=8192, out_features=1024),  # replaces maxpool
-            BatchNorm1d(1024),
-            ReLU(),
-            Dropout(p=self.dropout),
-            Linear(in_features=1024, out_features=256),
-            BatchNorm1d(256),
-            ReLU(),
-            Dropout(p=self.dropout),
-            Linear(in_features=256, out_features=8)
-        )
+
+        self.fc = config.head
 
         # self.model.fc = Sequential(
         #     Dropout(p=dropout),
@@ -130,18 +110,16 @@ class CroppyNet(
             raise UnimplementedError
 
     @staticmethod
-    def from_trained_config(config: dict, device: Device):
+    def from_trained_config(checkpoint: dict, device: Device):
         model: CroppyNet = CroppyNet(
-            weights=DEFAULT_WEIGHTS,
-            loss_fn=loss_from_str(config["loss_fn"]),
-            architecture=Architecture.from_str(config["architecture"]),
+            loss_fn=loss_from_str(checkpoint["loss_fn"]),
+            architecture=Architecture.from_str(checkpoint["architecture"]),
             target_device=device,
-            images_height=config["images_height"],
-            images_width=config["images_width"],
-            dropout=config["dropout"],
-            learning_rate=config["current_learning_rate"],  # use current or target??
+            images_height=checkpoint["images_height"],
+            images_width=checkpoint["images_width"],
+            learning_rate=checkpoint["current_learning_rate"],
         )
-        model.load_state_dict(config["model_state_dict"])
+        model.load_state_dict(checkpoint["model_state_dict"])
         return model.to(device.value)  # adds a validation step
 
 
@@ -195,7 +173,7 @@ def validation_data(
 ) -> float:
     model.eval()
     val_loss = 0.0
-    gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=hard).to(
+    gpu_transforms = get_transforms(config.backbone_weights, Device.CUDA, train=hard).to(
         "cuda"
     )
     batch_n = 0
@@ -300,15 +278,8 @@ def train(
 
     # THE MODEL MUST BE MOVED TO cTHE RIGHT DEVICE BEFORE INITIALIZING THE OPTIMIZER
     model = model.to(model.target_device.value)
-    # TODO: integrate weight_decay in the CLI or config file
-    optimizer = Adam(model.parameters(), lr=model.learning_rate, weight_decay=1e-4)
-    # implementing learning rate decay!
-    # soft for now
-    # TODO: integrate in the CLI or config file
-    
-    # ReduceLROnPlateau(factor=0.1, patience=4) drops the LR by 10× after just 4 stalled epochs. For a regression task with augmentation, loss plateaus are normal, and the LR may drop too fast — locking the model into a suboptimal solution before it converges.
-    # Fix: Try factor=0.5, patience=8 for a gentler decay. Or switch to CosineAnnealingLR which is generally better for fine-grained convergence.
-    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=8)
+    optimizer = Adam(model.parameters(), lr=model.learning_rate, weight_decay=config.weight_decay)
+    scheduler = ReduceLROnPlateau(optimizer, mode=config.scheduler_mode, factor=config.scheduler_factor, patience=config.scheduler_patience)
 
     for epoch in epochs_iter:
         model.train()
@@ -356,7 +327,7 @@ def train(
                 # the gpu has to handle transforms
                 with torch.no_grad():
                     gpu_transforms = get_transforms(
-                        common.DEFAULT_WEIGHTS, Device.CUDA, train=True
+                        config.backbone_weights, Device.CUDA, train=True
                     ).to("cuda")
                     images, labels = gpu_transforms(images.to("cuda"), labels_wrapped)
                 new_h, new_w = images.shape[-2:]

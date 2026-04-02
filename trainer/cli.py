@@ -9,7 +9,6 @@ from torch.utils.data import DataLoader
 import storage
 import utils
 from architecture import Architecture
-from common import DEFAULT_WEIGHTS
 from common import Precision, Device, Purpose
 from crawler import crawl
 from data import SmartDocDataset
@@ -97,7 +96,6 @@ def run_precompute(args):
 
 def run_train(args):
     print("Starting training job...")
-    weights = DEFAULT_WEIGHTS
 
     # Retrieve height and width from the store
     print(f"Opening store at {args.training_store_path}")
@@ -141,14 +139,12 @@ def run_train(args):
     )
 
     model = CroppyNet(
-        weights=weights,
         architecture=Architecture.from_str(args.architecture),
         loss_fn=loss_from_str(args.loss_function),
         images_height=h,
         images_width=w,
         target_device=Device.from_str(args.device),
         learning_rate=args.learning_rate,
-        dropout=args.dropout,
     )
 
     train(
@@ -167,9 +163,10 @@ def run_train(args):
     )
 
 
+# WIP, NOT WORKING!
 def run_predict(args):
-    config = utils.load_checkpoint(args.config, train=False)
-    model = CroppyNet.from_trained_config(config, Device.from_str(args.device))
+    checkpoint = utils.load_checkpoint(args.config, train=False)
+    model = CroppyNet.from_trained_config(checkpoint, Device.from_str(args.device))
 
     # load image and convert to RGB from BGR
     image = cv2.imread(args.path, cv2.IMREAD_COLOR)
