@@ -11,7 +11,7 @@ let
   cpuCount = 16;
 
   # Precompute variables
-  precomputeOutputDir = "./croppy_" + (if compact then "compact_" else "") + h + "x" + w;
+  precomputeOutputDir = "./croppy_extended_" + (if compact then "compact_" else "") + h + "x" + w;
   h = "512"; # "1024";
   w = "512"; # "768";
   strict = false;
@@ -53,7 +53,8 @@ let
     + (if compact then "_compacted" else "")
     + "."
     + lib.strings.toLower store;
-  loss_function = "invariant_smooth_mae";
+  # loss_function = "invariant_smooth_mae";
+  loss_function = "invariant_mae";
   learning_rate = "0.0001";
   dropout = "0.25";
   epochs = "100";
@@ -63,7 +64,7 @@ let
   debug = "3";
   checkpoint = "3";
   tensorboard = true;
-  hard_validation = true;
+  hard_validation = false;
 
   precomputeCmd = ''
     ${runCmd} precompute \

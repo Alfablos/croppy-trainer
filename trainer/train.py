@@ -93,8 +93,7 @@ class CroppyNet(
             BatchNorm1d(256),
             ReLU(),
             Dropout(p=self.dropout),
-            Linear(in_features=256, out_features=8),
-            Sigmoid()
+            Linear(in_features=256, out_features=8)
         )
 
         # self.model.fc = Sequential(
