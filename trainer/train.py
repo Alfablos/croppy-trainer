@@ -59,13 +59,30 @@ class CroppyNet(
 
         # Backbone
         base = config.backbone_model_fn(weights=config.backbone_weights, progress=True)
-        self.model = nn.Sequential(
-            *list(base.children())[:-2]
-        )  # exclude pooling layer and fully connected
+
+        if config.coord_conv:
+            old_conv = base.conv1  # Conv2d(3, 64, 7, 2, 3, bias=False)
+            new_conv = nn.Conv2d(
+                config.backbone_input_channels, 64,
+                kernel_size=7, stride=2, padding=3, bias=False,
+            )
+            with torch.no_grad():
+                new_conv.weight[:, :3] = old_conv.weight
+                nn.init.zeros_(new_conv.weight[:, 3:])
+            base.conv1 = new_conv
+
+        backbone_layers = list(base.children())[:-2]  # exclude pooling + FC
+        if config.coord_conv:
+            backbone_layers = [config.AddCoordChannels()] + backbone_layers
+        self.model = nn.Sequential(*backbone_layers)
 
         if config.freeze_backbone:
             for param in self.model.parameters():
                 param.requires_grad = False
+            if config.coord_conv:
+                # Unfreeze conv1 — its input distribution changed (5ch vs 3ch)
+                for param in base.conv1.parameters():
+                    param.requires_grad = True
 
         # Resnet downsamples x32
         if (images_height % 32 != 0) or (images_width % 32 != 0):

@@ -56,7 +56,7 @@ let
   learning_rate = "0.0001";
   epochs = "100";
   workers = toString (cpuCount / 2);
-  batch_size = "192";
+  batch_size = "32";
   device = "gpu";
   debug = "3";
   checkpoint = "3";

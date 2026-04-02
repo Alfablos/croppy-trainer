@@ -260,6 +260,21 @@ backbone_weights = visionmodels.ResNet18_Weights.DEFAULT
 freeze_backbone = True
 backbone_output_channels = 512  # resnet18/34 → 512, resnet50+ → 2048
 
+### CoordConv ###
+coord_conv = True
+backbone_input_channels = 5 if coord_conv else 3
+
+
+class AddCoordChannels(nn.Module):
+    """Appends normalized x, y coordinate meshgrids as extra channels (CoordConv)."""
+    def forward(self, x):
+        batch, _, h, w = x.shape
+        y_coords = torch.linspace(-1, 1, h, device=x.device, dtype=x.dtype)
+        x_coords = torch.linspace(-1, 1, w, device=x.device, dtype=x.dtype)
+        y_grid = y_coords.view(1, 1, h, 1).expand(batch, 1, h, w)
+        x_grid = x_coords.view(1, 1, 1, w).expand(batch, 1, h, w)
+        return torch.cat([x, x_grid, y_grid], dim=1)
+
 ### FC Head ###
 dropout = 0.25
 
