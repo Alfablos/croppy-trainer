@@ -216,21 +216,21 @@ transforms = {
         "cpu": transformsV2.Compose(
             [
                 transformsV2.ToImage(),
-                # transformsV2.JPEG(quality=[70, 100]),  # CPU-bound, cannot run on GPU
-                # transformsV2.ColorJitter(brightness=0.5, contrast=0.8, saturation=0.4),
-                # # transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
+                transformsV2.JPEG(quality=[70, 100]),  # CPU-bound, cannot run on GPU
+                transformsV2.ColorJitter(brightness=0.5, contrast=0.8, saturation=0.4),
+                # transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
             ]
         ),
         "gpu": lambda t: transformsV2.Compose(
             [
-                # transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
+                transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
                 # transformsV2.ElasticTransform(alpha=15.0),
-                # transformsV2.RandomPerspective(
-                #     distortion_scale=0.25, p=0.3, fill=(255, 255, 255)
-                # ),  # p=0.5 => half of the dataset is affected
-                # # All the pipeline must be computed on UINT8, conversion at last
-                # transformsV2.ToDtype(torch.float32, scale=True),
-                # transformsV2.GaussianNoise(),  # needs float input or turns uint8 into floats!
+                transformsV2.RandomPerspective(
+                    distortion_scale=0.25, p=0.3, fill=(255, 255, 255)
+                ),  # p=0.5 => half of the dataset is affected
+                # All the pipeline must be computed on UINT8, conversion at last
+                transformsV2.ToDtype(torch.float32, scale=True),
+                transformsV2.GaussianNoise(),  # needs float input or turns uint8 into floats!
                 transformsV2.ToDtype(torch.float32, scale=True),
                 transformsV2.Normalize(mean=t.mean, std=t.std),
             ]
@@ -258,11 +258,14 @@ transforms = {
 backbone_model_fn = visionmodels.resnet18
 backbone_weights = visionmodels.ResNet18_Weights.DEFAULT
 freeze_backbone = True
-backbone_output_channels = 512  # resnet18/34 → 512, resnet50+ → 2048
+backbone_output_channels = 128  # layer2 output: resnet18/34 → 128
+backbone_downsample_factor = 8  # conv1(×2) · maxpool(×2) · layer2(×2) = 8×
 
 ### CoordConv ###
+# Coordinate grids are injected AFTER the backbone, not before conv1.
+# The backbone detects visual features; the grids tell the head WHERE those
+# features are. The head sees raw 0-1 position values alongside visual features.
 coord_conv = True
-backbone_input_channels = 5 if coord_conv else 3
 
 
 class AddCoordChannels(nn.Module):
@@ -277,16 +280,15 @@ class AddCoordChannels(nn.Module):
 
 ### FC Head ###
 dropout = 0.25
+head_input_channels = backbone_output_channels + (2 if coord_conv else 0)  # 130
 
 head = nn.Sequential(
-    nn.AdaptiveAvgPool2d(4),         # 512 × h × w  →  512 × 4 × 4
-    nn.Flatten(),                     # → 8192
-    nn.Dropout(p=dropout),
-    nn.Linear(8192, 1024),
-    nn.BatchNorm1d(1024),
+    nn.Conv2d(head_input_channels, 8, kernel_size=1),  # learned channel reduction, spatial preserved
+    nn.BatchNorm2d(8),
     nn.ReLU(),
+    nn.Flatten(),                     # 8 × 64 × 64 = 32,768
     nn.Dropout(p=dropout),
-    nn.Linear(1024, 256),
+    nn.Linear(32768, 256),
     nn.BatchNorm1d(256),
     nn.ReLU(),
     nn.Dropout(p=dropout),
@@ -297,13 +299,7 @@ head = nn.Sequential(
 weight_decay = 1e-4
 grad_clip_max_norm = 1.0  # max L2 norm for gradient clipping; None to disable
 
-# Conv1 coord channels sit at the very beginning of the frozen backbone.
-# Any weight change there ripples through 4 frozen residual stages that
-# amplify the distribution shift. A 100x smaller LR prevents the coord
-# weights from drifting fast enough to destabilize downstream features.
-coord_conv_lr = 1e-6  # learning rate for conv1 coord channel weights
-
 ### LR Scheduler ###
-scheduler_factor = 0.3
-scheduler_patience = 5
+scheduler_factor = 0.5
+scheduler_patience = 8
 scheduler_mode = "min"

@@ -57,59 +57,24 @@ class CroppyNet(
         self.learning_rate = learning_rate
         self.weights = config.backbone_weights
 
-        # Backbone
+        # Backbone — truncated at layer2 for higher spatial resolution (64×64 at 512 input)
         base = config.backbone_model_fn(weights=config.backbone_weights, progress=True)
-
-        if config.coord_conv:
-            old_conv = base.conv1  # Conv2d(3, 64, 7, 2, 3, bias=False)
-            new_conv = nn.Conv2d(
-                config.backbone_input_channels, 64,
-                kernel_size=7, stride=2, padding=3, bias=False,
-            )
-            with torch.no_grad():
-                new_conv.weight[:, :3] = old_conv.weight
-                nn.init.zeros_(new_conv.weight[:, 3:])
-            base.conv1 = new_conv
-
-        backbone_layers = list(base.children())[:-2]  # exclude pooling + FC
-        if config.coord_conv:
-            backbone_layers = [config.AddCoordChannels()] + backbone_layers
+        backbone_layers = list(base.children())[:6]  # conv1, bn1, relu, maxpool, layer1, layer2
         self.model = nn.Sequential(*backbone_layers)
 
         if config.freeze_backbone:
             for param in self.model.parameters():
                 param.requires_grad = False
-            if config.coord_conv:
-                # conv1 now has 5 input channels: [R, G, B, x_coord, y_coord].
-                # The whole parameter must have requires_grad=True for PyTorch to
-                # compute gradients on ANY channel. But we only want the 2 coord
-                # channels (indices 3, 4) to actually update — the 3 RGB channels
-                # hold pretrained ImageNet weights that the rest of the frozen
-                # backbone depends on.
-                #
-                # If we let the RGB weights drift, every downstream frozen layer
-                # (bn1, layer1–4) receives a feature distribution it wasn't trained
-                # on, producing garbage activations that cascade into wild predictions.
-                #
-                # Solution: register a backward hook that zeros out the gradient
-                # for the RGB slice (dim=1, indices 0..2) after each backward pass,
-                # before the optimizer step. The optimizer sees zero gradient for
-                # RGB → those weights never move. The coord channels get normal
-                # gradients → the model learns spatial awareness without
-                # destabilizing pretrained features.
-                for param in base.conv1.parameters():
-                    param.requires_grad = True
-                base.conv1.weight.register_hook(
-                    lambda grad: grad.index_fill_(1, torch.arange(3, device=grad.device), 0)
-                )
-                self.conv1_params = list(base.conv1.parameters())
 
-        # Resnet downsamples x32
-        if (images_height % 32 != 0) or (images_width % 32 != 0):
+        ds = config.backbone_downsample_factor
+        if (images_height % ds != 0) or (images_width % ds != 0):
             if architecture == Architecture.RESNET:
                 raise ValueError(
-                    f"Resnet requires images height and width to be divisible by 32! Current values: h = {images_height}, w = {images_width}"
+                    f"Resnet requires images height and width to be divisible by {ds}! Current values: h = {images_height}, w = {images_width}"
                 )
+
+        if config.coord_conv:
+            self.add_coords = config.AddCoordChannels()
 
         self.fc = config.head
 
@@ -134,6 +99,8 @@ class CroppyNet(
 
     def forward(self, x):
         x = self.model(x)
+        if config.coord_conv:
+            x = self.add_coords(x)
         return self.fc(x)
 
     def loss_function(self):
@@ -315,18 +282,7 @@ def train(
 
     # THE MODEL MUST BE MOVED TO THE RIGHT DEVICE BEFORE INITIALIZING THE OPTIMIZER
     model = model.to(model.target_device.value)
-
-    # Separate param groups: conv1 coord channels need a much smaller LR
-    # because they feed into frozen layers that amplify any weight drift.
-    if config.coord_conv and config.freeze_backbone:
-        conv1_param_ids = {id(p) for p in model.conv1_params}
-        head_params = [p for p in model.parameters() if p.requires_grad and id(p) not in conv1_param_ids]
-        optimizer = Adam([
-            {"params": head_params, "lr": model.learning_rate},
-            {"params": model.conv1_params, "lr": config.coord_conv_lr},
-        ], weight_decay=config.weight_decay)
-    else:
-        optimizer = Adam(model.parameters(), lr=model.learning_rate, weight_decay=config.weight_decay)
+    optimizer = Adam(model.parameters(), lr=model.learning_rate, weight_decay=config.weight_decay)
 
     scheduler = ReduceLROnPlateau(optimizer, mode=config.scheduler_mode, factor=config.scheduler_factor, patience=config.scheduler_patience)
 
@@ -467,14 +423,6 @@ def train(
                 global_step=epoch + 1,
             )
 
-            # Diagnostic: monitor conv1 coord weight drift and prediction range
-            if config.coord_conv and config.freeze_backbone:
-                conv1_weight = model.conv1_params[0]
-                s_writer.add_scalar(
-                    "diagnostics/conv1_coord_weight_norm",
-                    conv1_weight[:, 3:].norm().item(),
-                    global_step=epoch + 1,
-                )
             s_writer.add_scalars(
                 "diagnostics/pred_range",
                 {"min": preds.min().item(), "max": preds.max().item()},
