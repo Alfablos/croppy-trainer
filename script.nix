@@ -25,7 +25,7 @@ let
       false;
   commit_frequency = "100";
   precomputeWorkers = toString cpuCount;
-  limit = "0";
+  limit = "5000";
   store = "arrow"; # also the file extension: .lmdb .arrow
 
   # Training variables
@@ -56,9 +56,9 @@ let
   learning_rate = "0.0001";
   epochs = "100";
   workers = toString (cpuCount / 2);
-  batch_size = "32";
+  batch_size = "64";
   device = "gpu";
-  debug = "3";
+  debug = "2";
   checkpoint = "3";
   tensorboard = true;
   hard_validation = false;

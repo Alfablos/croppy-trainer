@@ -269,8 +269,8 @@ class AddCoordChannels(nn.Module):
     """Appends normalized x, y coordinate meshgrids as extra channels (CoordConv)."""
     def forward(self, x):
         batch, _, h, w = x.shape
-        y_coords = torch.linspace(-1, 1, h, device=x.device, dtype=x.dtype)
-        x_coords = torch.linspace(-1, 1, w, device=x.device, dtype=x.dtype)
+        y_coords = torch.linspace(0, 1, h, device=x.device, dtype=x.dtype)
+        x_coords = torch.linspace(0, 1, w, device=x.device, dtype=x.dtype)
         y_grid = y_coords.view(1, 1, h, 1).expand(batch, 1, h, w)
         x_grid = x_coords.view(1, 1, 1, w).expand(batch, 1, h, w)
         return torch.cat([x, x_grid, y_grid], dim=1)
@@ -295,10 +295,15 @@ head = nn.Sequential(
 
 ### Optimizer ###
 weight_decay = 1e-4
+grad_clip_max_norm = 1.0  # max L2 norm for gradient clipping; None to disable
+
+# Conv1 coord channels sit at the very beginning of the frozen backbone.
+# Any weight change there ripples through 4 frozen residual stages that
+# amplify the distribution shift. A 100x smaller LR prevents the coord
+# weights from drifting fast enough to destabilize downstream features.
+coord_conv_lr = 1e-6  # learning rate for conv1 coord channel weights
 
 ### LR Scheduler ###
-# factor=0.5 + patience=8: gentler than the aggressive 0.1/4 combo,
-# avoids locking into suboptimal solutions during normal plateau periods
-scheduler_factor = 0.5
-scheduler_patience = 8
+scheduler_factor = 0.3
+scheduler_patience = 5
 scheduler_mode = "min"
