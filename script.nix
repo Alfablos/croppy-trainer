@@ -53,7 +53,7 @@ let
     + lib.strings.toLower store;
   # loss_function = "invariant_smooth_mae";
   loss_function = "invariant_mae";
-  learning_rate = "0.0001";
+  learning_rate = "0.001";
   epochs = "100";
   workers = toString (cpuCount / 2);
   batch_size = "256";

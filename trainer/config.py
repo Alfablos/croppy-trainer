@@ -3,6 +3,7 @@ from typing import List
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision.models as visionmodels
 from torchvision.transforms import v2 as transformsV2
 
@@ -225,9 +226,9 @@ transforms = {
             [
                 transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
                 # transformsV2.ElasticTransform(alpha=15.0),
-                transformsV2.RandomPerspective(
-                    distortion_scale=0.25, p=0.3, fill=(255, 255, 255)
-                ),  # p=0.5 => half of the dataset is affected
+                # transformsV2.RandomPerspective(
+                #     distortion_scale=0.25, p=0.3, fill=(255, 255, 255)
+                # ),  # p=0.5 => half of the dataset is affected
                 # All the pipeline must be computed on UINT8, conversion at last
                 transformsV2.ToDtype(torch.float32, scale=True),
                 transformsV2.GaussianNoise(),  # needs float input or turns uint8 into floats!
@@ -257,7 +258,8 @@ transforms = {
 ### Model Architecture ###
 backbone_model_fn = visionmodels.resnet18
 backbone_weights = visionmodels.ResNet18_Weights.DEFAULT
-freeze_backbone = True
+freeze_backbone = True          # layers before layer2
+freeze_backbone_layer2 = False  # unfreeze layer2 so it learns corner-relevant features
 backbone_output_channels = 128  # layer2 output: resnet18/34 → 128
 backbone_downsample_factor = 8  # conv1(×2) · maxpool(×2) · layer2(×2) = 8×
 
@@ -278,21 +280,29 @@ class AddCoordChannels(nn.Module):
         x_grid = x_coords.view(1, 1, 1, w).expand(batch, 1, h, w)
         return torch.cat([x, x_grid, y_grid], dim=1)
 
-### FC Head ###
-dropout = 0.25
+### Soft-Argmax ###
+# Converts heatmaps to coordinates differentiably. See HEATMAPS_APPROACH.md for details.
+
+def soft_argmax_2d(heatmaps: torch.Tensor) -> torch.Tensor:
+    """Convert (B, K, H, W) heatmaps to (B, K, 2) normalized coordinates via soft-argmax."""
+    B, K, H, W = heatmaps.shape
+    flat = heatmaps.view(B, K, -1)
+    probs = F.softmax(flat, dim=-1).view(B, K, H, W)
+    x_coords = torch.linspace(0, 1, W, device=heatmaps.device, dtype=heatmaps.dtype)
+    y_coords = torch.linspace(0, 1, H, device=heatmaps.device, dtype=heatmaps.dtype)
+    x = (probs.sum(dim=-2) * x_coords).sum(dim=-1)
+    y = (probs.sum(dim=-1) * y_coords).sum(dim=-1)
+    return torch.stack([x, y], dim=-1)
+
+
+### Heatmap Head ###
 head_input_channels = backbone_output_channels + (2 if coord_conv else 0)  # 130
 
 head = nn.Sequential(
-    nn.Conv2d(head_input_channels, 8, kernel_size=1),  # learned channel reduction, spatial preserved
-    nn.BatchNorm2d(8),
+    nn.Conv2d(head_input_channels, 64, kernel_size=3, padding=1),
+    nn.BatchNorm2d(64),
     nn.ReLU(),
-    nn.Flatten(),                     # 8 × 64 × 64 = 32,768
-    nn.Dropout(p=dropout),
-    nn.Linear(32768, 256),
-    nn.BatchNorm1d(256),
-    nn.ReLU(),
-    nn.Dropout(p=dropout),
-    nn.Linear(256, 8),               # 4 corners × 2 coordinates
+    nn.Conv2d(64, 4, kernel_size=1),  # 4 heatmaps, one per corner
 )
 
 ### Optimizer ###

@@ -14,9 +14,8 @@ from typing import Callable, Any
 
 import torch
 import torch.nn as nn
-from torch.nn import L1Loss, MSELoss, Flatten
-from torch.nn import Sequential, Sigmoid, Linear, ReLU, Dropout, BatchNorm1d, AdaptiveAvgPool2d
-from torch.optim import Adam, Optimizer
+from torch.nn import L1Loss, MSELoss
+from torch.optim import Adam
 import torchvision.models as visionmodels
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -53,7 +52,6 @@ class CroppyNet(
         self.target_device = target_device
         self.images_height: int = images_height
         self.images_width = images_width
-        self.dropout = config.dropout
         self.learning_rate = learning_rate
         self.weights = config.backbone_weights
 
@@ -65,6 +63,10 @@ class CroppyNet(
         if config.freeze_backbone:
             for param in self.model.parameters():
                 param.requires_grad = False
+            # Selectively unfreeze layer2 (index 5) to learn corner-relevant features
+            if not config.freeze_backbone_layer2:
+                for param in self.model[5].parameters():
+                    param.requires_grad = True
 
         ds = config.backbone_downsample_factor
         if (images_height % ds != 0) or (images_width % ds != 0):
@@ -98,10 +100,12 @@ class CroppyNet(
         # )
 
     def forward(self, x):
-        x = self.model(x)
+        x = self.model(x)                          # backbone: (B, 128, 64, 64)
         if config.coord_conv:
-            x = self.add_coords(x)
-        return self.fc(x)
+            x = self.add_coords(x)                  # coord grids: (B, 130, 64, 64)
+        heatmaps = self.fc(x)                       # conv head: (B, 4, 64, 64)
+        coords = config.soft_argmax_2d(heatmaps)    # (B, 4, 2)
+        return coords.flatten(start_dim=1)           # (B, 8)
 
     def loss_function(self):
         if isinstance(self.loss_fn, L1Loss):
@@ -154,7 +158,6 @@ def save_checkpoint(
         "optimizer_state_dict": optimizer.state_dict(),
         "train_loss": epoch_train_loss,
         "val_loss": epoch_val_loss,
-        "dropout": model.dropout,
         "initial_learning_rate": model.learning_rate,
         "current_learning_rate": optimizer.param_groups[0]["lr"],
     }
@@ -250,7 +253,7 @@ def train(
     if checkpoint == 0:
         checkpoint = None
 
-    run_name = f"{model.architecture}_{model.loss_function()}_{model.dropout}dropout_{model.learning_rate}lr_{epochs}epochs_{train_len}x{model.images_height}x{model.images_width}"
+    run_name = f"{model.architecture}_{model.loss_function()}_{model.learning_rate}lr_{epochs}epochs_{train_len}x{model.images_height}x{model.images_width}"
     print(f"Starting run {run_name}")
     out_dir = Path(out_dir)
     if not out_dir.exists():
