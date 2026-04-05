@@ -25,7 +25,7 @@ let
       false;
   commit_frequency = "100";
   precomputeWorkers = toString cpuCount;
-  limit = "2500";
+  limit = "0";
   store = "arrow"; # also the file extension: .lmdb .arrow
 
   # Training variables

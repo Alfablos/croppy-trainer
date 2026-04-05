@@ -43,7 +43,7 @@ class SmartDocExtendedDataSource(DataSource):
         root_path: str,
         crawl_output_path: str | None = None,
         precompute_base_dir: str | None = None,
-    ):
+        ):
         self.name = name
         self.root_path = Path(root_path)
         self._crawl_output_path = crawl_output_path
