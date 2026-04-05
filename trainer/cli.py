@@ -45,21 +45,11 @@ def run_precompute(args):
     output_dir = args.output_dir.rstrip("/")
 
     for purpose_key, sources in config.DATA_SOURCES.items():
-        combined_csv = f"{output_dir}/dataset_{str(architecture)}_{purpose_key}.csv"
-
-        # Crawl each source into its own CSV (skip if already exists):
-        # prevents having to start all from scratch in case of an error
-        # in later sources
-        source_csvs = []
-        needs_merge = False
         for source in sources:
             source_csv = f"{output_dir}/crawl_{source.name}.csv"
-            source_csvs.append(source_csv)
 
             if not os.path.exists(source_csv):
-                print(
-                    f"[{purpose_key}] Crawling source '{source.name}'..."
-                )
+                print(f"[{purpose_key}] Crawling source '{source.name}'...")
                 crawl(
                     data_sources=[source],
                     architecture=architecture,
@@ -69,76 +59,96 @@ def run_precompute(args):
                     progress=args.progress,
                     limit=args.limit,
                 )
-                needs_merge = True
             else:
                 print(f"[{purpose_key}] Found existing crawl for '{source.name}'. Skipping.")
 
-        # Merge per-source CSVs into a combined CSV for precompute
-        if needs_merge or not os.path.exists(combined_csv):
-            import pandas as pd
-            frames = [pd.read_csv(csv) for csv in source_csvs if os.path.exists(csv)]
-            merged = pd.concat(frames, ignore_index=True)
-            merged.to_csv(combined_csv, index=False)
-            print(f"[{purpose_key}] Merged {len(frames)} source(s) into {combined_csv} ({len(merged)} rows).")
+            precompute(
+                architecture=architecture,
+                output_dir=output_dir,
+                target_h=args.target_height,
+                target_w=args.target_width,
+                dataset_map_csv=source_csv,
+                source_name=source.name,
+                dry_run=args.dry_run,
+                purpose=Purpose.from_str(purpose_key),
+                verbose=args.verbose,
+                progress=args.progress,
+                strict=args.strict,
+                n_workers=args.workers,
+                commit_freq=args.commit_frequency,
+                compact_store=args.compact_store,
+            )
 
-        precompute(
-            architecture=architecture,
-            output_dir=output_dir,
-            target_h=args.target_height,
-            target_w=args.target_width,
-            dataset_map_csv=combined_csv,
-            dry_run=args.dry_run,
-            purpose=Purpose.from_str(purpose_key),
-            verbose=args.verbose,
-            progress=args.progress,
-            strict=args.strict,
-            n_workers=args.workers,
-            commit_freq=args.commit_frequency,
-            compact_store=args.compact_store,
-        )
+            print(f"\n[{purpose_key}/{source.name}] Precomputation complete.\n")
 
-        print(f"\n[{purpose_key}] Precomputation complete.\n")
+
+def _resolve_store_path(store_dir: str, architecture: Architecture, purpose: str, source_name: str, h: int, w: int) -> str:
+    """Derive the store path for a given source from the naming convention used by precompute."""
+    from common import DEFAULT_STORAGE_CLASS  # avoid circular import at module level
+    return f"{store_dir}/{purpose}_data/data_{architecture.value}_{source_name}_{h}x{w}.{DEFAULT_STORAGE_CLASS}"
+
+
+def _discover_store_dimensions(store_dir: str, architecture: Architecture) -> tuple[int, int]:
+    """Read h/w from the first available store in the directory."""
+    for arrow_file in sorted(Path(store_dir).rglob(f"data_{architecture.value}_*.arrow")):
+        with storage.new_store(str(arrow_file), write=False) as store:
+            return int(store.get_metadata("h")), int(store.get_metadata("w"))
+    raise FileNotFoundError(f"No stores found for architecture '{architecture}' in {store_dir}")
 
 
 def run_train(args):
     print("Starting training job...")
 
-    # Retrieve height and width from the store
-    print(f"Opening store at {args.training_store_path}")
-    with storage.new_store(args.training_store_path, write=False) as store:
-        h = int(store.get_metadata("h"))
-        w = int(store.get_metadata("w"))
+    architecture = Architecture.from_str(args.architecture)
+    store_dir = args.store_dir.rstrip("/")
 
-    print(f"Setting up training dataset...")
+    h, w = _discover_store_dimensions(store_dir, architecture)
+    print(f"Store dimensions: {h}x{w}")
 
-    resnet_train_ds = SmartDocDataset(
-        store_path=args.training_store_path,
-        architecture=Architecture.from_str(args.architecture),
-        train=True,
-        precision=Precision.from_str(args.precision),
-        limit=args.limit,
-    )
+    # Build per-source training datasets from config
+    from torch.utils.data import ConcatDataset
+
+    print("Setting up training dataset...")
+    training_datasets = []
+    for source in config.DATA_SOURCES["training"]:
+        path = _resolve_store_path(store_dir, architecture, "training", source.name, h, w)
+        print(f"  Loading {source.name} from {path}")
+        ds = SmartDocDataset(
+            store_path=path,
+            architecture=architecture,
+            cpu_transforms=source.train_cpu_transforms,
+            precision=Precision.from_str(args.precision),
+            limit=args.limit,
+        )
+        training_datasets.append(ds)
+    train_dataset = ConcatDataset(training_datasets) if len(training_datasets) > 1 else training_datasets[0]
 
     train_dataloader = DataLoader(
-        pin_memory=True,  # Using CUDA
-        dataset=resnet_train_ds,
+        pin_memory=True,
+        dataset=train_dataset,
         shuffle=True,
         batch_size=args.batch_size,
         num_workers=args.workers,
     )
 
-    print(f"Setting up validation dataset...")
-    resnet_val_ds = SmartDocDataset(
-        store_path=args.validation_store_path,
-        architecture=Architecture.from_str(args.architecture),
-        train=args.hard_validation,
-        precision=Precision.from_str(args.precision),
-        limit=args.limit,
-    )
+    print("Setting up validation dataset...")
+    validation_datasets = []
+    for source in config.DATA_SOURCES["validation"]:
+        path = _resolve_store_path(store_dir, architecture, "validation", source.name, h, w)
+        print(f"  Loading {source.name} from {path}")
+        ds = SmartDocDataset(
+            store_path=path,
+            architecture=architecture,
+            cpu_transforms=source.val_cpu_transforms,
+            precision=Precision.from_str(args.precision),
+            limit=args.limit,
+        )
+        validation_datasets.append(ds)
+    val_dataset = ConcatDataset(validation_datasets) if len(validation_datasets) > 1 else validation_datasets[0]
 
     val_dataloader = DataLoader(
-        pin_memory=True,  # Using CUDA
-        dataset=resnet_val_ds,
+        pin_memory=True,
+        dataset=val_dataset,
         shuffle=False,
         batch_size=args.batch_size,
         num_workers=args.workers,
@@ -159,13 +169,19 @@ def run_train(args):
             learning_rate=args.learning_rate,
         )
 
+    # GPU transforms come from the data sources — first source of each purpose
+    train_gpu_transforms = config.DATA_SOURCES["training"][0].train_gpu_transforms
+    val_gpu_transforms = config.DATA_SOURCES["validation"][0].val_gpu_transforms
+
     train(
         model=model,
         out_dir=args.output_directory,
         train_dataloader=train_dataloader,
         validation_dataloader=val_dataloader,
+        train_gpu_transforms=train_gpu_transforms,
+        val_gpu_transforms=val_gpu_transforms,
         epochs=args.epochs,
-        train_len=args.limit if args.limit else len(resnet_train_ds),
+        train_len=args.limit if args.limit else len(train_dataset),
         hard_validation=args.hard_validation,
         verbose=args.verbose,
         progress=args.progress,

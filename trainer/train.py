@@ -9,7 +9,7 @@ import torch.distributed.optim.post_localSGD_optimizer
 import tqdm
 from loss import loss_from_str
 from architecture import Architecture
-from data import SmartDocDataset, get_transforms
+from data import SmartDocDataset
 from typing import Callable, Any
 
 import torch
@@ -174,7 +174,7 @@ def validation_data(
     loss_fn,
     device: Device,
     verbose: bool,
-    hard: bool,
+    gpu_transforms,
     debug_fn: Callable | None,
     visual_debug_path: str,
     s_writer: SummaryWriter | None = None,
@@ -182,9 +182,6 @@ def validation_data(
 ) -> float:
     model.eval()
     val_loss = 0.0
-    gpu_transforms = get_transforms(config.backbone_weights, Device.CUDA, train=hard).to(
-        "cuda"
-    )
     batch_n = 0
 
     for images, labels in loader:
@@ -229,6 +226,8 @@ def train(
     model: CroppyNet,
     train_dataloader: DataLoader,
     validation_dataloader: DataLoader,
+    train_gpu_transforms,
+    val_gpu_transforms,
     epochs: int,
     out_dir: str,
     train_len: int,  # only to append the information to filename and specs
@@ -349,10 +348,7 @@ def train(
                 )
                 # the gpu has to handle transforms
                 with torch.no_grad():
-                    gpu_transforms = get_transforms(
-                        config.backbone_weights, Device.CUDA, train=True
-                    ).to("cuda")
-                    images, labels = gpu_transforms(images.to("cuda"), labels_wrapped)
+                    images, labels = train_gpu_transforms(images.to("cuda"), labels_wrapped)
                 new_h, new_w = images.shape[-2:]
                 # See https://docs.pytorch.org/vision/main/auto_examples/transforms/plot_tv_tensors.html#but-i-want-a-tvtensor-back
                 # normalization may be ineffective on Keypoints, need to unwrap the underlying tensor
@@ -409,7 +405,7 @@ def train(
                 loss_fn=model.loss_fn,
                 device=model.target_device,
                 verbose=verbose,
-                hard=hard_validation,
+                gpu_transforms=train_gpu_transforms if hard_validation else val_gpu_transforms,
                 debug_fn=debug_fn if debug and (epoch + 1) % debug == 0 else None,
                 visual_debug_path=visual_debug_validation_path,
                 s_writer=s_writer if with_tensorboard else None,

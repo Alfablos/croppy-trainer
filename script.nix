@@ -25,7 +25,7 @@ let
       false;
   commit_frequency = "100";
   precomputeWorkers = toString cpuCount;
-  limit = "0";
+  limit = "2500";
   store = "arrow"; # also the file extension: .lmdb .arrow
 
   # Training variables
@@ -43,14 +43,7 @@ let
     + epochs
     + (if hard_validation then "_hardvalidation" else "")
     + "_${device}";
-  storePath =
-    purpose:
-    precomputeOutputDir
-    + "/${purpose}_data/data_${architecture}_${purpose}_"
-    + "${h}x${w}"
-    + (if compact then "_compacted" else "")
-    + "."
-    + lib.strings.toLower store;
+  storeDir = precomputeOutputDir;
   # loss_function = "invariant_smooth_mae";
   loss_function = "invariant_mae";
   learning_rate = "0.001";
@@ -109,8 +102,7 @@ let
         checkpoint
         ;
       output_dir = trainingOutputDir;
-      training_store = storePath "training";
-      validation_store = storePath "validation";
+      store_dir = storeDir;
     };
   };
 in
@@ -127,8 +119,7 @@ pkgs.writeScript "quick-run" ''
   train() {
     ${runCmd} train \
       --out-dir ${trainingOutputDir}  \
-      --db ${storePath "training"} \
-      --valdb ${storePath "validation"} \
+      --store-dir ${storeDir} \
       --architecture ${architecture} \
       --loss-function ${loss_function} \
       --learning-rate ${learning_rate} \
@@ -142,7 +133,7 @@ pkgs.writeScript "quick-run" ''
       ${if hard_validation then "--hard-validation" else ""} \
       ${if training_limit != "0" then "--limit ${training_limit}" else ""} \
       ${if debug != "0" then "--debug ${debug}" else ""} \
-      ${if checkpoint != "0" then "--checkpoint ${checkpoint}" else ""} 
+      ${if checkpoint != "0" then "--checkpoint ${checkpoint}" else ""}
   }
 
 
@@ -168,7 +159,7 @@ pkgs.writeScript "quick-run" ''
         exit 2
       fi
 
-      if [[ -f "${storePath "training"}" ]] && [[ -f "${storePath "validation"}" ]]; then
+      if [[ -d "${storeDir}/training_data" ]] && [[ -d "${storeDir}/validation_data" ]]; then
         echo "Stores found. Skipping precompute."
         train
       else

@@ -117,19 +117,11 @@ if __name__ == "__main__":
 
     ## Train ##
     train_cmd.add_argument(
-        "--training-store-path",
-        "--store-path",
-        "--training-store",
-        "--store",
-        "--db",
+        "--store-dir",
+        "--dir",
+        "-S",
         required=True,
-    )
-    train_cmd.add_argument(
-        "--validation-store-path",
-        "--validation-storevalidation-store",
-        "--valstore",
-        "--valdb",
-        required=True,
+        help="Directory containing precomputed per-source Arrow stores (same as precompute -o)",
     )
     train_cmd.add_argument("--architecture", "--arch", "-a", required=True)
     train_cmd.add_argument(

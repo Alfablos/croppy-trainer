@@ -28,22 +28,20 @@ class SmartDocDataset(Dataset):
         store_path: str,
         architecture: Architecture,
         precision: Precision,
-        train: bool,
-        image_transforms: Optional[Callable] = None,
-        label_transforms: Optional[Callable] = None,
+        cpu_transforms,
         limit: Optional[int] = None,
     ):
         super().__init__()
 
         self.precision = precision
         self.store_path = store_path
+        self.cpu_transforms = cpu_transforms
 
         with storage.new_store(store_path, write=False) as store:
             self.len = len(store)
-        # cannot use self.store to aboid pytorch forking the pointer to an open store
+        # cannot use self.store to avoid pytorch forking the pointer to an open store
         self.store = None
         self.limit = limit if limit != 0 else None
-        self.train = train
 
     def __len__(self):
         if self.limit is not None:
@@ -65,8 +63,7 @@ class SmartDocDataset(Dataset):
         # copy creates a writable copy to system RAM
         image, label = image.copy(), label.copy()
         h, w, _ = image.shape
-        transforms = get_transforms(None, Device.CPU, self.train)
-        image_tvtensor = transforms(image)  # shape is now (3, h, w)
+        image_tvtensor = self.cpu_transforms(image)  # shape is now (3, h, w)
 
         # For labels we need shape (4, 2): [[x1, y1], [x2, y2], ...]
         label_reshaped = label.reshape(-1, 2)
@@ -81,24 +78,6 @@ class SmartDocDataset(Dataset):
         return image_tvtensor, label_tvtensor
 
 
-def get_transforms(weights, device: Device, train=False):
-    if device == Device.CPU:
-        if train:
-            return config.transforms["training"]["cpu"]
-        else:
-            return config.transforms["validation"]["cpu"]
-    else:
-        if weights is None:
-            raise ValueError(
-                "Weights must be included in the call to `get_transforms` if GPU is involved."
-            )
-        t = weights.transforms()
-        if train:
-            return config.transforms["training"]["gpu"](t)
-        else:
-            return config.transforms["validation"]["gpu"](t)
-
-
 def current_train_transforms(
     input_path: str | tuple[str, int], output_path: str | None
 ):
@@ -110,15 +89,19 @@ def current_train_transforms(
             img_np, _ = store.get(input_path[1])
         output_path = f"./{input_path[1]}_transformed.jpg"
 
-    ## CPU ##: from data.py
-    transforms = get_transforms(None, Device.CPU, train=True)
-    image_tvtensor = transforms(img_np)  # shape is now (3, h, w)
+    ## CPU ##: from data.py — uses Extended transforms as example
+    from torchvision.transforms import v2 as transformsV2
+    cpu_transforms = transformsV2.Compose([
+        transformsV2.ToImage(),
+        transformsV2.JPEG(quality=[70, 100]),
+        transformsV2.ColorJitter(brightness=0.5, contrast=0.8, saturation=0.4),
+        transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
+    ])
+    image_tvtensor = cpu_transforms(img_np)  # shape is now (3, h, w)
     print(f"tensor shape after CPU transforms: {image_tvtensor.shape}")
 
-    ## GPU ## from train.py
-    gpu_transforms = get_transforms(common.DEFAULT_WEIGHTS, Device.CUDA, train=True).to(
-        "cuda"
-    )
+    ## GPU ## from config.py — use first training source's GPU transforms
+    gpu_transforms = config.DATA_SOURCES["training"][0].train_gpu_transforms
     prepared_image = image_tvtensor.unsqueeze(dim=0).to("cuda")
     print(f"GPU: prepared image shape = {prepared_image.shape}")
     image = gpu_transforms(prepared_image)

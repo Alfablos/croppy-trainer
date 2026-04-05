@@ -48,6 +48,7 @@ def precompute(
     # weight of the training images
     target_w: int,
     dataset_map_csv: str,
+    source_name: str | None = None,
     # Every how many iterations data is written to disk
     commit_freq: int = 100,
     # No actual computation
@@ -91,9 +92,10 @@ def precompute(
         data_length, target_h, target_w
     )
 
+    name_part = f"_{source_name}" if source_name else f"_{str(purpose)}"
     db_path_noext = (
         str(output_dir)
-        + f"/data_{architecture.value}_{str(purpose)}_{target_h}x{target_w}"
+        + f"/data_{architecture.value}{name_part}_{target_h}x{target_w}"
     )
     db_path = db_path_noext + "." + DEFAULT_STORAGE_CLASS
 

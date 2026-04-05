@@ -12,6 +12,18 @@ import cv2
 from common import DataSource, DataRow, Device
 import utils
 
+### Model Architecture ###
+backbone_model_fn = visionmodels.resnet18
+backbone_weights = visionmodels.ResNet18_Weights.DEFAULT
+freeze_backbone = True          # layers before layer2
+freeze_backbone_layer2 = False  # unfreeze layer2 so it learns corner-relevant features
+backbone_output_channels = 128  # layer2 output: resnet18/34 → 128
+backbone_downsample_factor = 8  # conv1(×2) · maxpool(×2) · layer2(×2) = 8×
+
+# Precomputed from backbone_weights — used by DataSource GPU transforms
+_t = backbone_weights.transforms()
+_normalize = transformsV2.Normalize(mean=_t.mean, std=_t.std)
+
 
 class SmartDocExtendedDataSource(DataSource):
     """
@@ -21,11 +33,29 @@ class SmartDocExtendedDataSource(DataSource):
         - No CSV metadata file
         - Images end in ``_in.png``, labels (masks) end in ``_gt.png``
         - Coordinates are derived from label masks via ``utils.coords_from_segmentation_mask``
+
+    Synthetic images benefit from heavy augmentation to simulate real camera artifacts.
     """
 
     def __init__(self, name: str, root_path: str):
         self.name = name
         self.root_path = Path(root_path)
+        # CPU: source-specific augmentations (run per-sample in DataLoader workers)
+        self.train_cpu_transforms = transformsV2.Compose([
+            transformsV2.ToImage(),
+            transformsV2.JPEG(quality=[70, 100]),
+            transformsV2.ColorJitter(brightness=0.5, contrast=0.8, saturation=0.4),
+            transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
+            transformsV2.ToDtype(torch.float32, scale=True),
+            transformsV2.GaussianNoise(),
+        ])
+        self.val_cpu_transforms = transformsV2.Compose([
+            transformsV2.ToImage(),
+            transformsV2.ToDtype(torch.float32, scale=True),
+        ])
+        # GPU: backbone normalization (run per-batch in training loop)
+        self.train_gpu_transforms = transformsV2.Compose([_normalize])
+        self.val_gpu_transforms = transformsV2.Compose([_normalize])
 
     def check(self) -> str | None:
         if not self.root_path.exists():
@@ -110,6 +140,18 @@ class SmartDocDataSource(DataSource):
         self.root_path = Path(root_path)
         self.metadata_file = Path(metadata_file)
         self.split = split
+        # Real video frames already have natural variation — no augmentation needed
+        self.train_cpu_transforms = transformsV2.Compose([
+            transformsV2.ToImage(),
+            transformsV2.ToDtype(torch.float32, scale=True),
+        ])
+        self.val_cpu_transforms = transformsV2.Compose([
+            transformsV2.ToImage(),
+            transformsV2.ToDtype(torch.float32, scale=True),
+        ])
+        # GPU: backbone normalization only
+        self.train_gpu_transforms = transformsV2.Compose([_normalize])
+        self.val_gpu_transforms = transformsV2.Compose([_normalize])
 
     def check(self) -> str | None:
         if not self.root_path.exists():
@@ -210,58 +252,6 @@ DATA_SOURCES: dict[str, list[DataSource]] = {
     ],
 }
 
-### Transforms ###
-
-transforms = {
-    "training": {
-        "cpu": transformsV2.Compose(
-            [
-                transformsV2.ToImage(),
-                transformsV2.JPEG(quality=[70, 100]),  # CPU-bound, cannot run on GPU
-                transformsV2.ColorJitter(brightness=0.5, contrast=0.8, saturation=0.4),
-                # transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
-            ]
-        ),
-        "gpu": lambda t: transformsV2.Compose(
-            [
-                transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
-                # transformsV2.ElasticTransform(alpha=15.0),
-                # transformsV2.RandomPerspective(
-                #     distortion_scale=0.25, p=0.3, fill=(255, 255, 255)
-                # ),  # p=0.5 => half of the dataset is affected
-                # All the pipeline must be computed on UINT8, conversion at last
-                transformsV2.ToDtype(torch.float32, scale=True),
-                transformsV2.GaussianNoise(),  # needs float input or turns uint8 into floats!
-                transformsV2.ToDtype(torch.float32, scale=True),
-                transformsV2.Normalize(mean=t.mean, std=t.std),
-            ]
-        ),
-    },
-    "validation": {
-        "cpu": transformsV2.Compose([transformsV2.ToImage()]),
-        "gpu": lambda t: transformsV2.Compose(
-            [
-                # All the pipeline must be computed on UINT8, conversion at last
-                transformsV2.ToDtype(torch.float32, scale=True),
-                transformsV2.Normalize(mean=t.mean, std=t.std),
-            ]
-        ),
-    },
-}
-
-## Discarded:
-# White fill to differ less from the background
-# transformsV2.RandomRotation(degrees=(0, 100), fill=255), # let's try but I'm not sure... see https://docs.pytorch.org/vision/main/auto_examples/transforms/plot_rotated_box_transforms.html
-# transformsV2.RandomAffine(degrees=(0, 100), fill=255),
-
-
-### Model Architecture ###
-backbone_model_fn = visionmodels.resnet18
-backbone_weights = visionmodels.ResNet18_Weights.DEFAULT
-freeze_backbone = True          # layers before layer2
-freeze_backbone_layer2 = False  # unfreeze layer2 so it learns corner-relevant features
-backbone_output_channels = 128  # layer2 output: resnet18/34 → 128
-backbone_downsample_factor = 8  # conv1(×2) · maxpool(×2) · layer2(×2) = 8×
 
 ### CoordConv ###
 # Coordinate grids are injected AFTER the backbone, not before conv1.

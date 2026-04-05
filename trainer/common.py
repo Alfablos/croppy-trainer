@@ -165,6 +165,15 @@ class DataRow:
 
 
 class DataSource(metaclass=ABCMeta):
+    """
+    Subclasses must set:
+        name: str
+        train_cpu_transforms: torchvision Compose — CPU transforms for training (per-sample, in DataLoader workers)
+        val_cpu_transforms: torchvision Compose — CPU transforms for validation
+        train_gpu_transforms: torchvision Compose — GPU transforms for training (per-batch, in training loop)
+        val_gpu_transforms: torchvision Compose — GPU transforms for validation
+    """
+
     @abstractmethod
     def __init__(
         self,
