@@ -1,48 +1,44 @@
 import math
 
 from functools import partial
-from itertools import chain
 from os import cpu_count
-from tqdm.contrib.concurrent import process_map
 
 from concurrent.futures.process import ProcessPoolExecutor
-from typing import Any, Iterable, Callable
+from typing import Any, Iterable
 
 import os
-import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import cv2
 from tqdm import tqdm
 
 
 from architecture import Architecture
-from common import Precision, Purpose, DataSource, DataRow
+from common import DataSource
 import utils
 from utils import Device
 
 
-def chunks_from_list(l: Iterable[Any], n_chunks: int) -> list[Any]:
+def chunks_from_list(items: Iterable[Any], n_chunks: int) -> list[Any]:
     if n_chunks <= 0:
         return []
-    l = list(l)
-    n = len(l)
+    items = list(items)
+    n = len(items)
     # print(f"chunks_from_list: received {n} paths to split in {n_chunks} chunks.")
 
     if n < n_chunks:
-        return [p for p in l]
+        return [p for p in items]
 
-    chunk_size, remainder = (len(l) // n_chunks, len(l) % n_chunks)
+    chunk_size, remainder = (len(items) // n_chunks, len(items) % n_chunks)
 
     result = []
     for i in range(n_chunks):
         start = i * chunk_size
         end = (i + 1) * chunk_size
-        result.append(l[start:end])
+        result.append(items[start:end])
     if remainder > 0:
-        result.append(l[n_chunks * chunk_size :])
+        result.append(items[n_chunks * chunk_size :])
 
     return result
 
@@ -118,8 +114,8 @@ def _crawl_worker(payload):
 def crawl(
     data_sources: list[DataSource],
     architecture: Architecture,
-    output: str,
-    limit: int | None,
+    output: str | None = None,
+    limit: int | None = None,
     chunks: int = math.floor(cpu_count() / 2),
     check_normalization=True,
     verbose=False,
@@ -128,7 +124,26 @@ def crawl(
     """
     Crawls multiple data sources to find and pair image files with their corresponding labels (masks or coordinates),
     optionally computes normalized document corner coordinates from segmentation masks, and saves the results to a CSV file.
+
+    Args:
+        data_sources: List of DataSource objects to crawl
+        architecture: The model architecture
+        output: Output CSV path (for internal use only; normally derived from data_sources)
+        limit: Limit number of items
+        chunks: Number of parallel chunks
+        check_normalization: Whether to check normalization
+        verbose: Verbose output
+        progress: Show progress bar
     """
+    # Determine output path from data source if not explicitly provided
+    if output is None:
+        if len(data_sources) == 1:
+            output = data_sources[0].crawl_output_path
+        else:
+            raise ValueError(
+                "When crawling multiple sources, output path must be provided explicitly. "
+                "Consider crawling sources individually to use their configured paths."
+            )
 
     if os.path.exists(output):
         print(f"Output file {output} exists. Refusing to continue.")

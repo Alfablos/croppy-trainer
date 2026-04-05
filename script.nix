@@ -56,9 +56,10 @@ let
   tensorboard = true;
   hard_validation = false;
 
-  precomputeCmd = ''
+  precomputeCmd = purpose: ''
     ${runCmd} precompute \
       -o ${precomputeOutputDir} \
+      --purpose ${purpose} \
       --height ${h} \
       --width ${w} \
       ${if strict then "--strict" else "--no-strict"} \
@@ -113,7 +114,8 @@ pkgs.writeScript "quick-run" ''
   #!/usr/bin/env bash
 
   precompute() {
-    ${precomputeCmd}
+    ${precomputeCmd "training"}
+    ${precomputeCmd "validation"}
   }
 
   train() {

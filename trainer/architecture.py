@@ -1,11 +1,11 @@
 import torch
-from typing import Callable, TypeVar, Never
+from typing import Callable, Never
 import cv2
 from enum import Enum
 import numpy as np
 from numpy.typing import NDArray
 
-from common import Precision, Device
+from common import Device
 from utils import (
     assert_never,
     resize_img,

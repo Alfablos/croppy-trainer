@@ -2,13 +2,8 @@ import torch
 from multiprocessing import cpu_count
 from cli import run_crawl, run_precompute, run_train, run_predict, run_merge_stores
 import argparse
-from pathlib import Path
 
 # from data import SmartDocDatasetResnet
-from common import Precision
-from crawler import crawl
-from preprocessor import precompute
-from architecture import Architecture
 
 
 if __name__ == "__main__":
@@ -40,11 +35,17 @@ if __name__ == "__main__":
     # Crawling is always done per-purpose from DATA_SOURCES in config.py
 
     crawl_cmd.add_argument(
-        "-o", "--output", required=True, help="Where to save the CSV file"
-    )
-    crawl_cmd.add_argument(
         "--architecture", "--arch", "-a", required=True,
         help="Model architecture (resnet or unet), determines what label data to compute"
+    )
+    crawl_cmd.add_argument(
+        "--purpose", "-p", required=True,
+        choices=["training", "validation", "test"],
+        help="Purpose to crawl (training/validation/test)"
+    )
+    crawl_cmd.add_argument(
+        "--source",
+        help="Specific data source name to crawl. If not specified, crawls all sources for the purpose."
     )
     crawl_cmd.add_argument("--check-normalization", "-n", action="store_true")
     crawl_cmd.add_argument(
@@ -62,12 +63,15 @@ if __name__ == "__main__":
     precompute_cmd.add_argument("--check-normalization", "-n", action="store_true")
 
     # true precompute_cmd arguments
-    precompute_cmd.add_argument(
-        "-o", "--output-dir", required=True, help="Where to save LMDB and CSV files"
-    )
     precompute_cmd.add_argument("--architecture", "--arch", "-a", required=True)
     precompute_cmd.add_argument("--target-height", "--height", type=int, required=True)
     precompute_cmd.add_argument("--target-width", "--width", type=int, required=True)
+    precompute_cmd.add_argument("--purpose", "-p", required=True,
+        choices=["training", "validation", "test"])
+    precompute_cmd.add_argument(
+        "--source",
+        help="Specific data source name to precompute. If not specified, precomputes all sources for the purpose."
+    )
     precompute_cmd.add_argument(
         "--commit-frequency", "--commit-freq", required=False, type=int, default=100
     )
@@ -111,6 +115,14 @@ if __name__ == "__main__":
         + "Preprocessing duration might increase dramatically.",
     )
     precompute_cmd.add_argument(
+        "--output-dir",
+        "-o",
+        required=False,
+        default=None,
+        help="Top-level output directory. Stores go under {dir}/training_data/ and {dir}/validation_data/. "
+             "Defaults to config.PATHS if not specified.",
+    )
+    precompute_cmd.add_argument(
         "--limit", "-L", type=int, help="Limit the number of items to include"
     )
     precompute_cmd.set_defaults(func=run_precompute)
@@ -120,8 +132,8 @@ if __name__ == "__main__":
         "--store-dir",
         "--dir",
         "-S",
-        required=True,
-        help="Directory containing precomputed per-source Arrow stores (same as precompute -o)",
+        help="Directory containing precomputed per-source Arrow stores. "
+             "If not specified, uses the default from config.PATHS['training']['precompute_output_dir'].",
     )
     train_cmd.add_argument("--architecture", "--arch", "-a", required=True)
     train_cmd.add_argument(
@@ -130,7 +142,8 @@ if __name__ == "__main__":
     train_cmd.add_argument("--epochs", "-e", required=True, type=int)
     train_cmd.add_argument(
         "--output-directory",
-        "--out-dir--output",
+        "--out-dir",
+        "--output",
         "-o",
         required=True,
         help="Where to save the model weights and specs file",

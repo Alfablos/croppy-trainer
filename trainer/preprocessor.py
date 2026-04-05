@@ -9,7 +9,7 @@ from functools import partial
 from typing import Callable
 
 import storage
-from common import Purpose, DEFAULT_STORAGE_CLASS
+from common import Purpose, DEFAULT_STORAGE_CLASS, DataSource
 from pathlib import Path
 import os
 import csv
@@ -42,13 +42,13 @@ def worker(
 def precompute(
     architecture: Architecture,
     purpose: Purpose,
-    output_dir: str,
-    # heights of the training images
     target_h: int,
     # weight of the training images
     target_w: int,
     dataset_map_csv: str,
+    output_dir: str | None = None,
     source_name: str | None = None,
+    source: DataSource | None = None,
     # Every how many iterations data is written to disk
     commit_freq: int = 100,
     # No actual computation
@@ -58,10 +58,41 @@ def precompute(
     strict: bool = True,
     n_workers: int = int(cpu_count() / 2),
     compact_store: bool = False,
+    paths_config: dict | None = None,
 ):
     """
     Performs a resize and stores resized images in a LMDB Database at :path
+
+    Args:
+        architecture: The model architecture
+        purpose: The purpose (training/validation/test)
+        target_h: Target height
+        target_w: Target width
+        dataset_map_csv: Path to the crawl output CSV
+        output_dir: Output directory (for internal use; normally derived from source)
+        source_name: Name of the data source (legacy)
+        source: DataSource object (preferred over source_name)
+        commit_freq: Commit frequency
+        dry_run: Dry run
+        verbose: Verbose output
+        progress: Show progress
+        strict: Strict mode
+        n_workers: Number of workers
+        compact_store: Compact the store
+        paths_config: Path configuration from config.py
     """
+    # Determine output directory
+    if output_dir is None:
+        if source is None and source_name is None:
+            raise ValueError(
+                "Either 'source' or 'source_name' must be provided."
+            )
+
+        if source is not None:
+            output_dir = source.get_precompute_base_dir(purpose, paths_config)
+        else:
+            # Fallback for legacy behavior
+            output_dir = f"{purpose}_data"
 
     args = locals()
 
@@ -92,11 +123,12 @@ def precompute(
         data_length, target_h, target_w
     )
 
-    name_part = f"_{source_name}" if source_name else f"_{str(purpose)}"
-    db_path_noext = (
-        str(output_dir)
-        + f"/data_{architecture.value}{name_part}_{target_h}x{target_w}"
-    )
+    # Update store path generation
+    if source is not None:
+        db_path_noext = str(output_dir) + f"/data_{architecture.value}_{source.name}_{target_h}x{target_w}"
+    else:
+        name_part = f"_{source_name}" if source_name else f"_{str(purpose)}"
+        db_path_noext = str(output_dir) + f"/data_{architecture.value}{name_part}_{target_h}x{target_w}"
     db_path = db_path_noext + "." + DEFAULT_STORAGE_CLASS
 
     # if the user wants to compact the store and the
@@ -130,9 +162,10 @@ def precompute(
             return
         raise FileExistsError(db_path)
 
+    index_name = source.name if source is not None else (source_name or str(purpose))
     index_path = (
         str(output_dir)
-        + f"/index_{architecture.value}_{str(purpose)}_{data_length}x{target_h}x{target_w}.csv"
+        + f"/index_{architecture.value}_{index_name}_{data_length}x{target_h}x{target_w}.csv"
     )
     if os.path.exists(index_path):
         raise FileExistsError(index_path)

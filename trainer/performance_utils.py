@@ -1,10 +1,7 @@
 import subprocess
 from pathlib import Path
 from sys import stderr
-from enum import Enum
 
-import numpy as np
-import torch
 
 
 def create_path_batch(root: str | Path, n):

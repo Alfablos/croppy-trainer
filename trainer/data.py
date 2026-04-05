@@ -1,17 +1,15 @@
-import pandas as pd
-from numpy.typing import NDArray
 import torchvision.tv_tensors
 
 import common
 from architecture import Architecture
-from typing import Any, Optional, List, Callable, Never, Tuple
+from typing import Optional
 
 import cv2
 import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 
-from common import Device, Precision, DEFAULT_WEIGHTS, DEFAULT_STORAGE_CLASS
+from common import Precision
 import storage
 import config
 

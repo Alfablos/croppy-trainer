@@ -10,31 +10,23 @@ The function that implements the algorithm
 """
 
 import logging
-from logging import info, debug
 from datetime import datetime
-import os
-import math
 import threading
-from asyncio import CancelledError
-from sys import stderr
-import subprocess
 import time
-import getpass
 from multiprocessing import cpu_count
 from multiprocessing.pool import Pool
 from pathlib import Path
-from typing import List, NoReturn, Any
+from typing import List
 
 import pandas as pd
 import cv2
 import numpy as np
 import torch
 from tqdm import tqdm
-from triton.language import dtype
 
 from common import Device, Precision
 from utils import coords_from_segmentation_mask, find_max_dims
-from performance_utils import drop_disk_cache, create_path_batch
+from performance_utils import create_path_batch
 
 
 class TqdmHandler(logging.Handler):
@@ -173,7 +165,7 @@ def compute_cpu(path: str, precision: Precision, verbose=False):
             image = np.divide(image, 255.0)
 
         if verbose:
-            logger.info(f"The image stays on CPU")
+            logger.info("The image stays on CPU")
 
         start_compute_time = time.time()
         whites = coords_from_segmentation_mask(

@@ -2,22 +2,20 @@ import cv2
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchvision import tv_tensors
 
-import common
 from tensorboard.compat.tensorflow_stub.errors import UnimplementedError
 from pathlib import Path
 import torch.distributed.optim.post_localSGD_optimizer
 import tqdm
 from loss import loss_from_str
 from architecture import Architecture
-from data import SmartDocDataset
-from typing import Callable, Any
+from typing import Callable
 
 import torch
 import torch.nn as nn
 from torch.nn import L1Loss, MSELoss
 from torch.optim import Adam
 import torchvision.models as visionmodels
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 import config
@@ -458,7 +456,7 @@ def train(
     if with_tensorboard:
         s_writer.close()
 
-    print(f"Saving final checkpoint.")
+    print("Saving final checkpoint.")
     save_checkpoint(
         epoch_progress=(epochs, epochs),
         epoch_losses=(epoch_train_loss, epoch_val_loss),

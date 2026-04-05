@@ -1,11 +1,9 @@
-import time
 from pathlib import Path
 from time import sleep
 from typing import List
 
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.pyplot import legend
 from tqdm import tqdm
 
 

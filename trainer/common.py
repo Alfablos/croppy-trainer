@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import Any, List, TYPE_CHECKING
 from enum import Enum
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
@@ -179,8 +179,85 @@ class DataSource(metaclass=ABCMeta):
         self,
         name: str,
         root_path: str,
+        crawl_output_path: str | None = None,
+        precompute_base_dir: str | None = None,
     ):
+        """
+        Args:
+            name: Unique identifier for this data source
+            root_path: Path to the root directory containing images/labels
+            crawl_output_path: Path where crawl output CSV should be saved
+            precompute_base_dir: Base directory for precompute outputs
+                             (defaults to PATHS config if not specified)
+        """
         pass
+
+    @property
+    def crawl_output_path(self) -> str:
+        """Get the crawl output path for this data source."""
+        if self._crawl_output_path is None:
+            return f"./data/crawl_{self.name}.csv"
+        return self._crawl_output_path
+
+    def get_precompute_base_dir(self, purpose: Purpose, paths_config: dict | None = None) -> str:
+        """
+        Get the base directory for precompute output for this data source.
+
+        Priority:
+        1. DataSource's precompute_base_dir (if set)
+        2. paths_config[str(purpose)]["precompute_output_dir"] (if provided)
+        3. Default: "{purpose}_data"
+
+        Args:
+            purpose: The purpose (training/validation/test)
+            paths_config: The PATHS configuration from config.py
+
+        Returns:
+            The base directory for precompute output
+        """
+        # First, check if this source has an override
+        if self._precompute_base_dir is not None:
+            return self._precompute_base_dir
+
+        # Second, check the global config
+        if paths_config is not None:
+            purpose_str = str(purpose)
+            if purpose_str in paths_config:
+                return paths_config[purpose_str]["precompute_output_dir"]
+
+        # Fallback to default
+        return f"{purpose_str}_data"
+
+    def get_precompute_output_path(
+        self,
+        architecture: "Architecture",
+        purpose: Purpose,
+        target_h: int,
+        target_w: int,
+        paths_config: dict | None = None,
+        compacted: bool = False,
+    ) -> str:
+        """
+        Get the full path for a precompute store.
+
+        Path format: {base_dir}/{purpose}_data/data_{arch}_{source_name}_{h}x{w}[._compacted].{ext}
+
+        Args:
+            architecture: The model architecture
+            purpose: The purpose (training/validation/test)
+            target_h: Target height
+            target_w: Target width
+            paths_config: The PATHS configuration from config.py
+            compacted: Whether this is a compacted store
+
+        Returns:
+            Full path to the store file
+        """
+        base_dir = self.get_precompute_base_dir(purpose, paths_config)
+        ext = DEFAULT_STORAGE_CLASS
+
+        compacted_str = "_compacted" if compacted else ""
+        return f"{base_dir}/{purpose}_data/data_{architecture.value}_{self.name}_{target_h}x{target_w}{compacted_str}.{ext}"
 
     @abstractmethod
     def check(self) -> str | None:  # return error as a string

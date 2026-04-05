@@ -37,9 +37,17 @@ class SmartDocExtendedDataSource(DataSource):
     Synthetic images benefit from heavy augmentation to simulate real camera artifacts.
     """
 
-    def __init__(self, name: str, root_path: str):
+    def __init__(
+        self,
+        name: str,
+        root_path: str,
+        crawl_output_path: str | None = None,
+        precompute_base_dir: str | None = None,
+    ):
         self.name = name
         self.root_path = Path(root_path)
+        self._crawl_output_path = crawl_output_path
+        self._precompute_base_dir = precompute_base_dir
         # CPU: source-specific augmentations (run per-sample in DataLoader workers)
         self.train_cpu_transforms = transformsV2.Compose([
             transformsV2.ToImage(),
@@ -63,7 +71,6 @@ class SmartDocExtendedDataSource(DataSource):
         return None
 
     def fetch(self, architecture) -> List[DataRow]:
-        from architecture import Architecture
 
         images = sorted(self.root_path.glob("**/*_in.png"))
         rows: List[DataRow] = []
@@ -135,11 +142,15 @@ class SmartDocDataSource(DataSource):
         root_path: str,
         metadata_file: str,
         split: tuple[float, float] | None = None,
+        crawl_output_path: str | None = None,
+        precompute_base_dir: str | None = None,
     ):
         self.name = name
         self.root_path = Path(root_path)
         self.metadata_file = Path(metadata_file)
         self.split = split
+        self._crawl_output_path = crawl_output_path
+        self._precompute_base_dir = precompute_base_dir
         # Real video frames already have natural variation — no augmentation needed
         self.train_cpu_transforms = transformsV2.Compose([
             transformsV2.ToImage(),
@@ -166,7 +177,6 @@ class SmartDocDataSource(DataSource):
 
     def fetch(self, architecture) -> List[DataRow]:
         import pandas as pd
-        from architecture import Architecture
 
         df = pd.read_csv(self.metadata_file)
 
@@ -225,29 +235,49 @@ class SmartDocDataSource(DataSource):
 # For datasets without a train/val directory split, both keys can reference
 # the same source — a split mechanism can be added later.
 
+# Path configuration section
+# Provides default paths for each purpose
+# Can be overridden per-DataSource via precompute_base_dir parameter
+PATHS: dict[str, dict[str, str]] = {
+    "training": {
+        "precompute_output_dir": "./data",
+    },
+    "validation": {
+        "precompute_output_dir": "./data",
+    },
+    "test": {
+        "precompute_output_dir": "./data",
+    },
+}
+
 DATA_SOURCES: dict[str, list[DataSource]] = {
     "training": [
         SmartDocExtendedDataSource(
             name="smartdoc_extended_train",
             root_path="/home/antonio/Downloads/smartdoc15/extended_smartdoc_dataset/train",
+            crawl_output_path="./data/crawl_smartdoc_extended_train.csv",
+            # precompute_base_dir not specified, will use PATHS["training"]["precompute_output_dir"]
         ),
         SmartDocDataSource(
             name="smartdoc_original_train",
             root_path="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/smart_doc_extracted/images",
             metadata_file="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/frame_data.csv",
             split=(0, 0.8),  # first 80%
+            crawl_output_path="./data/crawl_smartdoc_original_train.csv",
         ),
     ],
     "validation": [
         SmartDocExtendedDataSource(
             name="smartdoc_extended_validation",
             root_path="/home/antonio/Downloads/smartdoc15/extended_smartdoc_dataset/validation",
+            crawl_output_path="./data/crawl_smartdoc_extended_validation.csv",
         ),
         SmartDocDataSource(
             name="smartdoc_original_val",
             root_path="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/smart_doc_extracted/images",
             metadata_file="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/frame_data.csv",
             split=(0.8, 1.0),  # last 20%
+            crawl_output_path="./data/crawl_smartdoc_original_val.csv",
         ),
     ],
 }

@@ -11,7 +11,6 @@ import lmdb
 from abc import ABCMeta, abstractmethod
 from numpy.typing import NDArray
 
-from common import DEFAULT_STORAGE_CLASS
 
 
 class DataStore(metaclass=ABCMeta):

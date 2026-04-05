@@ -1,9 +1,7 @@
 import os
 from pathlib import Path
-from time import sleep
 
 import cv2
-from numpy.typing import NDArray
 from torch.utils.data import DataLoader
 
 import storage
@@ -27,29 +25,103 @@ def run_merge_stores(args):
 
 
 def run_crawl(args):
-    # Standalone crawl: flatten all sources across all purposes
-    all_sources = [s for sources in config.DATA_SOURCES.values() for s in sources]
-    crawl(
-        data_sources=all_sources,
-        architecture=Architecture.from_str(args.architecture),
-        output=args.output,
-        check_normalization=args.check_normalization,
-        verbose=args.verbose,
-        progress=args.progress,
-        limit=args.limit,
-    )
+    """Run crawl for a single source or all sources for a purpose."""
+    architecture = Architecture.from_str(args.architecture)
+
+    if args.purpose is None:
+        raise ValueError(
+            "--purpose is required. Specify 'training', 'validation', or 'test'."
+        )
+
+    purpose = Purpose.from_str(args.purpose)
+    sources = config.DATA_SOURCES[str(purpose)]
+
+    if args.source is not None:
+        # Crawl a specific source
+        source = next((s for s in sources if s.name == args.source), None)
+        if source is None:
+            raise ValueError(f"Source '{args.source}' not found for purpose '{purpose}'")
+
+        crawl(
+            data_sources=[source],
+            architecture=architecture,
+            output=source.crawl_output_path,  # Use source's configured path
+            check_normalization=args.check_normalization,
+            verbose=args.verbose,
+            progress=args.progress,
+            limit=args.limit,
+        )
+    else:
+        # Crawl all sources for the purpose
+        for source in sources:
+            crawl(
+                data_sources=[source],
+                architecture=architecture,
+                output=source.crawl_output_path,  # Use each source's configured path
+                check_normalization=args.check_normalization,
+                verbose=args.verbose,
+                progress=args.progress,
+                limit=args.limit,
+            )
 
 
 def run_precompute(args):
+    """Run precompute for a single source or all sources for a purpose."""
     architecture = Architecture.from_str(args.architecture)
-    output_dir = args.output_dir.rstrip("/")
+    purpose = Purpose.from_str(args.purpose)
+    sources = config.DATA_SOURCES[str(purpose)]
+    paths_config = config.PATHS
 
-    for purpose_key, sources in config.DATA_SOURCES.items():
+    if args.source is not None:
+        # Precompute a specific source
+        source = next((s for s in sources if s.name == args.source), None)
+        if source is None:
+            raise ValueError(f"Source '{args.source}' not found for purpose '{purpose}'")
+
+        source_csv = source.crawl_output_path
+
+        # Auto-run crawl if needed
+        if not os.path.exists(source_csv):
+            print(f"Crawling source '{source.name}'...")
+            crawl(
+                data_sources=[source],
+                architecture=architecture,
+                output=source_csv,
+                check_normalization=args.check_normalization,
+                verbose=args.verbose,
+                progress=args.progress,
+                limit=args.limit,
+            )
+        else:
+            print(f"Found existing crawl for '{source.name}'. Skipping.")
+
+        precompute(
+            architecture=architecture,
+            purpose=purpose,
+            target_h=args.target_height,
+            target_w=args.target_width,
+            dataset_map_csv=source_csv,
+            output_dir=args.output_dir,
+            source=source,
+            dry_run=args.dry_run,
+            verbose=args.verbose,
+            progress=args.progress,
+            strict=args.strict,
+            n_workers=args.workers,
+            commit_freq=args.commit_frequency,
+            compact_store=args.compact_store,
+            paths_config=paths_config,
+        )
+
+        print(f"\n[{purpose}/{source.name}] Precomputation complete.\n")
+    else:
+        # Precompute all sources for the purpose
         for source in sources:
-            source_csv = f"{output_dir}/crawl_{source.name}.csv"
+            source_csv = source.crawl_output_path
 
+            # Auto-run crawl if needed
             if not os.path.exists(source_csv):
-                print(f"[{purpose_key}] Crawling source '{source.name}'...")
+                print(f"Crawling source '{source.name}'...")
                 crawl(
                     data_sources=[source],
                     architecture=architecture,
@@ -60,26 +132,27 @@ def run_precompute(args):
                     limit=args.limit,
                 )
             else:
-                print(f"[{purpose_key}] Found existing crawl for '{source.name}'. Skipping.")
+                print(f"Found existing crawl for '{source.name}'. Skipping.")
 
             precompute(
                 architecture=architecture,
-                output_dir=output_dir,
+                purpose=purpose,
                 target_h=args.target_height,
                 target_w=args.target_width,
                 dataset_map_csv=source_csv,
-                source_name=source.name,
+                output_dir=args.output_dir,
+                source=source,
                 dry_run=args.dry_run,
-                purpose=Purpose.from_str(purpose_key),
                 verbose=args.verbose,
                 progress=args.progress,
                 strict=args.strict,
                 n_workers=args.workers,
                 commit_freq=args.commit_frequency,
                 compact_store=args.compact_store,
+                paths_config=paths_config,
             )
 
-            print(f"\n[{purpose_key}/{source.name}] Precomputation complete.\n")
+            print(f"\n[{purpose}/{source.name}] Precomputation complete.\n")
 
 
 def _resolve_store_path(store_dir: str, architecture: Architecture, purpose: str, source_name: str, h: int, w: int) -> str:
@@ -97,10 +170,22 @@ def _discover_store_dimensions(store_dir: str, architecture: Architecture) -> tu
 
 
 def run_train(args):
+    """Run training using config-declared paths or CLI override."""
     print("Starting training job...")
 
     architecture = Architecture.from_str(args.architecture)
-    store_dir = args.store_dir.rstrip("/")
+
+    # Determine store directory
+    if args.store_dir is None:
+        # Use config default
+        paths_config = config.PATHS
+        if "training" in paths_config:
+            store_dir = paths_config["training"]["precompute_output_dir"]
+        else:
+            store_dir = "training_data"  # Fallback default
+        print(f"Using store directory from config: {store_dir}")
+    else:
+        store_dir = args.store_dir.rstrip("/")
 
     h, w = _discover_store_dimensions(store_dir, architecture)
     print(f"Store dimensions: {h}x{w}")
