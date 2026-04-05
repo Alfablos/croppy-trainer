@@ -387,6 +387,63 @@ class ArrowStore(DataStore):
         return "arrow"
 
 
+def merge_arrow_stores(input_paths: list[str], output_path: str):
+    """
+    Merge multiple Arrow IPC stores into a single one.
+    All input stores must have the same dimensions (h, w).
+    """
+    if os.path.exists(output_path):
+        raise FileExistsError(f"Output path {output_path} already exists.")
+
+    tables: list[pa.Table] = []
+    metadata: dict[str, str] | None = None
+    total_rows = 0
+
+    for path in input_paths:
+        source = pa.memory_map(path, "r")
+        reader = pa.ipc.open_file(source)
+        table = reader.read_all()
+        rows = table.num_rows
+        total_rows += rows
+
+        if table.schema.metadata:
+            file_meta = {k.decode(): v.decode() for k, v in table.schema.metadata.items()}
+            if metadata is None:
+                metadata = file_meta
+            else:
+                if file_meta.get("h") != metadata.get("h") or file_meta.get("w") != metadata.get("w"):
+                    raise ValueError(
+                        f"Dimension mismatch: first store is {metadata['h']}x{metadata['w']}, "
+                        f"but {path} is {file_meta['h']}x{file_meta['w']}"
+                    )
+
+        tables.append(table)
+        print(f"  {path}: {rows} rows")
+
+    merged = pa.concat_tables(tables)
+
+    # Build schema with metadata
+    schema = merged.schema
+    if metadata:
+        meta_bytes = {k.encode(): v.encode() for k, v in metadata.items()}
+        schema = schema.with_metadata(meta_bytes)
+
+    # Write merged table as IPC file
+    output_dir = Path(output_path).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    sink = pa.OSFile(output_path, "wb")
+    writer = pa.ipc.new_file(sink=sink, schema=schema)
+
+    for batch in merged.to_batches(max_chunksize=100):
+        writer.write_batch(batch)
+
+    writer.close()
+    sink.close()
+
+    print(f"Merged {len(tables)} stores → {output_path} ({total_rows} total rows)")
+
+
 def new_store(path: str, write: bool) -> DataStore:
     suffix = Path(path).suffix
     suffix_lower = suffix.lower()

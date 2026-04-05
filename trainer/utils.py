@@ -14,8 +14,8 @@ from common import Device, DEFAULT_WEIGHTS, DEFAULT_STORAGE_CLASS
 import storage
 
 
-def load_checkpoint(p: str, train: bool = False) -> dict:
-    checkpoint = torch.load(p)
+def load_checkpoint(p: str) -> dict:
+    checkpoint = torch.load(p, weights_only=False)
     return checkpoint
 
 

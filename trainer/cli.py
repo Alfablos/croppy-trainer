@@ -18,6 +18,12 @@ from preprocessor import precompute
 from train import train, CroppyNet
 
 import config
+from storage import merge_arrow_stores
+
+
+def run_merge_stores(args):
+    print(f"Merging {len(args.stores)} stores...")
+    merge_arrow_stores(args.stores, args.output)
 
 
 def run_crawl(args):
@@ -138,14 +144,20 @@ def run_train(args):
         num_workers=args.workers,
     )
 
-    model = CroppyNet(
-        architecture=Architecture.from_str(args.architecture),
-        loss_fn=loss_from_str(args.loss_function),
-        images_height=h,
-        images_width=w,
-        target_device=Device.from_str(args.device),
-        learning_rate=args.learning_rate,
-    )
+    resume_checkpoint = None
+    if args.resume:
+        print(f"Resuming from checkpoint: {args.resume}")
+        resume_checkpoint = utils.load_checkpoint(args.resume)
+        model = CroppyNet.from_trained_config(resume_checkpoint, Device.from_str(args.device))
+    else:
+        model = CroppyNet(
+            architecture=Architecture.from_str(args.architecture),
+            loss_fn=loss_from_str(args.loss_function),
+            images_height=h,
+            images_width=w,
+            target_device=Device.from_str(args.device),
+            learning_rate=args.learning_rate,
+        )
 
     train(
         model=model,
@@ -160,19 +172,23 @@ def run_train(args):
         with_tensorboard=args.enable_tensorboard,
         debug=int(args.debug) if args.debug is not None else None,
         checkpoint=args.checkpoint,
+        resume_from=resume_checkpoint,
     )
 
 
-# WIP, NOT WORKING!
 def run_predict(args):
-    checkpoint = utils.load_checkpoint(args.config, train=False)
-    model = CroppyNet.from_trained_config(checkpoint, Device.from_str(args.device))
+    checkpoint = utils.load_checkpoint(args.checkpoint)
+    device = Device.from_str(args.device)
+    model = CroppyNet.from_trained_config(checkpoint, device)
 
-    # load image and convert to RGB from BGR
-    image = cv2.imread(args.path, cv2.IMREAD_COLOR)
-    image: NDArray = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # Read original-size image for drawing the result
+    original_image = cv2.imread(args.path, cv2.IMREAD_COLOR)
+    if original_image is None:
+        raise FileNotFoundError(f"Could not read image at {args.path}")
+    original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
 
-    resized_image, original_shape = Architecture.resize_image(
+    # Resize + pad to model input dimensions for inference
+    resized_image, _ = Architecture.resize_image(
         args.path,
         h=model.images_height,
         w=model.images_width,
@@ -181,17 +197,13 @@ def run_predict(args):
         allow_padding=True,
     )
 
-    norm_coords = predict(
-        image=resized_image, model=model, device=Device.from_str(args.device)
-    )
-    actual_coords = get_image_points(
-        image.shape,  # NOT RESIZED!
-        norm_coords,
-    )
+    norm_coords = predict(image=resized_image, model=model, device=device)
 
-    draw_box(actual_coords, image)
+    # Denormalize to original image pixel coordinates
+    actual_coords = get_image_points(original_image.shape, norm_coords)
+
+    draw_box(actual_coords, original_image)
 
     outpath = args.output
-    cv2.imwrite(outpath, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-
+    cv2.imwrite(outpath, cv2.cvtColor(original_image, cv2.COLOR_RGB2BGR))
     print(f"Image saved to: {outpath}")

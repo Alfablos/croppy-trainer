@@ -1,6 +1,6 @@
 import torch
 from multiprocessing import cpu_count
-from cli import run_crawl, run_precompute, run_train, run_predict
+from cli import run_crawl, run_precompute, run_train, run_predict, run_merge_stores
 import argparse
 from pathlib import Path
 
@@ -190,6 +190,13 @@ if __name__ == "__main__":
         required=False,
         default=False,
     )
+    train_cmd.add_argument(
+        "--resume",
+        "-R",
+        required=False,
+        default=None,
+        help="Path to a .pth checkpoint file to resume training from.",
+    )
     train_cmd.set_defaults(func=run_train)
 
     predict_cmd.add_argument("path")
@@ -197,7 +204,7 @@ if __name__ == "__main__":
         "--output", "-o", required=True, help="Where to save LMDB and CSV files"
     )
     predict_cmd.add_argument(
-        "--config", "-c", required=True, help="The JSON model config file."
+        "--checkpoint", "--config", "-c", required=True, help="Path to a .pth checkpoint file."
     )
     predict_cmd.add_argument(
         "--device",
@@ -208,6 +215,22 @@ if __name__ == "__main__":
         default="cuda" if torch.cuda.is_available() else "cpu",
     )
     predict_cmd.set_defaults(func=run_predict)
+
+    ## merge-stores ##
+    merge_cmd = supbparsers.add_parser(
+        "merge-stores",
+        aliases=["merge"],
+        help="Merge multiple Arrow store files into one",
+    )
+    merge_cmd.add_argument(
+        "stores",
+        nargs="+",
+        help="Paths to .arrow store files to merge",
+    )
+    merge_cmd.add_argument(
+        "--output", "-o", required=True, help="Output path for the merged .arrow file"
+    )
+    merge_cmd.set_defaults(func=run_merge_stores)
 
     args = parser.parse_args()
     args.func(args)

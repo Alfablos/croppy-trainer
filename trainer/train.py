@@ -140,6 +140,7 @@ def save_checkpoint(
     out_dir: str,
     model: CroppyNet,
     optimizer: torch.optim.Optimizer,
+    scheduler: ReduceLROnPlateau | None = None,
 ):
     epoch, epochs = epoch_progress
     epoch_train_loss, epoch_val_loss = epoch_losses
@@ -156,6 +157,7 @@ def save_checkpoint(
         "loss_fn": model.loss_function(),
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict() if scheduler else None,
         "train_loss": epoch_train_loss,
         "val_loss": epoch_val_loss,
         "initial_learning_rate": model.learning_rate,
@@ -233,6 +235,7 @@ def train(
     hard_validation: bool,
     debug: int | None,
     checkpoint: int | None,
+    resume_from: dict | None = None,
     with_tensorboard: bool = False,
     verbose=False,
     progress=False,
@@ -253,17 +256,24 @@ def train(
     if checkpoint == 0:
         checkpoint = None
 
+    start_epoch = 0
+    if resume_from:
+        start_epoch = resume_from["epoch"]  # 1-indexed in checkpoint, used as 0-indexed start
+        print(f"Resuming from epoch {start_epoch}")
+
     run_name = f"{model.architecture}_{model.loss_function()}_{model.learning_rate}lr_{epochs}epochs_{train_len}x{model.images_height}x{model.images_width}"
     print(f"Starting run {run_name}")
     out_dir = Path(out_dir)
     if not out_dir.exists():
         out_dir.mkdir(parents=True, exist_ok=True)
-    out_dir_files = next(out_dir.walk())[2]
-    for f in out_dir_files:
-        if f.startswith(run_name) and f.endswith(".pth"):
-            raise FileExistsError(
-                f"Refusing to overwrite files of a previous run. {f} already exists."
-            )
+
+    if not resume_from:
+        out_dir_files = next(out_dir.walk())[2]
+        for f in out_dir_files:
+            if f.startswith(run_name) and f.endswith(".pth"):
+                raise FileExistsError(
+                    f"Refusing to overwrite files of a previous run. {f} already exists."
+                )
 
     if with_tensorboard:
         s_writer = SummaryWriter(log_dir=tensorboard_logdir)
@@ -272,9 +282,9 @@ def train(
             print(f"Tensorboard is listening at {url}")
 
     if progress:
-        epochs_iter = tqdm.trange(epochs, position=0)
+        epochs_iter = tqdm.trange(start_epoch, epochs, position=0, initial=start_epoch, total=epochs)
     else:
-        epochs_iter = range(epochs)
+        epochs_iter = range(start_epoch, epochs)
 
     visual_debug_training_subdir = "/visual_debug_training"
     visual_debug_validation_subdir = "/visual_debug_validation"
@@ -288,6 +298,11 @@ def train(
     optimizer = Adam(model.parameters(), lr=model.learning_rate, weight_decay=config.weight_decay)
 
     scheduler = ReduceLROnPlateau(optimizer, mode=config.scheduler_mode, factor=config.scheduler_factor, patience=config.scheduler_patience)
+
+    if resume_from:
+        optimizer.load_state_dict(resume_from["optimizer_state_dict"])
+        if resume_from.get("scheduler_state_dict"):
+            scheduler.load_state_dict(resume_from["scheduler_state_dict"])
 
     for epoch in epochs_iter:
         model.train()
@@ -442,6 +457,7 @@ def train(
                 out_dir=out_dir,
                 model=model,
                 optimizer=optimizer,
+                scheduler=scheduler,
             )
     if with_tensorboard:
         s_writer.close()
@@ -454,6 +470,7 @@ def train(
         out_dir=out_dir,
         model=model,
         optimizer=optimizer,
+        scheduler=scheduler,
     )
 
 

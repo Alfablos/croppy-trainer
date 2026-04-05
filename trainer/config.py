@@ -189,25 +189,25 @@ DATA_SOURCES: dict[str, list[DataSource]] = {
             name="smartdoc_extended_train",
             root_path="/home/antonio/Downloads/smartdoc15/extended_smartdoc_dataset/train",
         ),
-        # SmartDocDataSource(
-        #     name="smartdoc_original_train",
-        #     root_path="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/smart_doc_extracted/images",
-        #     metadata_file="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/frame_data.csv",
-        #     split=(0, 0.8),  # first 80%
-        # )
+        SmartDocDataSource(
+            name="smartdoc_original_train",
+            root_path="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/smart_doc_extracted/images",
+            metadata_file="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/frame_data.csv",
+            split=(0, 0.8),  # first 80%
+        ),
     ],
     "validation": [
         SmartDocExtendedDataSource(
             name="smartdoc_extended_validation",
             root_path="/home/antonio/Downloads/smartdoc15/extended_smartdoc_dataset/validation",
         ),
-        # SmartDocDataSource(
-        #     name="smartdoc_original_val",
-        #     root_path="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/smart_doc_extracted/images",
-        #     metadata_file="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/frame_data.csv",
-        #     split=(0.8, 1.0),  # last 20%
-        # )
-    ]
+        SmartDocDataSource(
+            name="smartdoc_original_val",
+            root_path="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/smart_doc_extracted/images",
+            metadata_file="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/frame_data.csv",
+            split=(0.8, 1.0),  # last 20%
+        ),
+    ],
 }
 
 ### Transforms ###

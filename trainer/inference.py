@@ -1,13 +1,9 @@
-from data import get_transforms
 from common import Device
-from torch.utils.hipify.cuda_to_hip_mappings import PYTORCH_SPECIFIC_MAPPINGS
 import torch
-import torchvision.models as visionmodels
 from torchvision.transforms import v2 as transformsV2
 import numpy as np
 from train import CroppyNet
 import cv2
-from architecture import Architecture
 from numpy.typing import NDArray
 
 
@@ -16,7 +12,6 @@ def predict(
     image: NDArray,
     model: CroppyNet,
     device: Device,
-    base_weights=visionmodels.ResNet18_Weights.DEFAULT,
 ) -> NDArray:
     model.eval()
 
@@ -31,9 +26,7 @@ def predict(
     img_tensor = transformsV2.ToImage()(image)
     inf_input: torch.Tensor = transforms(img_tensor)
 
-    input_as_batch = inf_input.unsqueeze(0).to(
-        device.value
-    )  # add a dimension, the model expects a batch
+    input_as_batch = inf_input.unsqueeze(0).to(device.value)
 
     return model(input_as_batch)
 
