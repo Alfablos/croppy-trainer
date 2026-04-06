@@ -92,7 +92,7 @@ Imagine two ways to answer "where is the top-left corner of this document?":
 "Look at the entire image, think hard, and tell me two precise numbers: x=0.187, y=0.134"
 
 **Approach B (Heatmap — what we're switching to):**
-"Here's a 64x64 grid overlaid on the image. Light up the cell where you see the corner."
+"Here's a 128x128 grid overlaid on the image. Light up the cell where you see the corner."
 
 Approach B is fundamentally easier because:
 
@@ -118,13 +118,13 @@ A heatmap is a 2D grid (tensor) where each cell contains a value representing
 In our case, the network outputs **4 heatmaps**, one for each document corner:
 
 ```
-Heatmap 0: "Where is the top-left corner?"     → shape (64, 64)
-Heatmap 1: "Where is the top-right corner?"    → shape (64, 64)
-Heatmap 2: "Where is the bottom-right corner?" → shape (64, 64)
-Heatmap 3: "Where is the bottom-left corner?"  → shape (64, 64)
+Heatmap 0: "Where is the top-left corner?"     → shape (128, 128)
+Heatmap 1: "Where is the top-right corner?"    → shape (128, 128)
+Heatmap 2: "Where is the bottom-right corner?" → shape (128, 128)
+Heatmap 3: "Where is the bottom-left corner?"  → shape (128, 128)
 
-Stacked together: (4, 64, 64)
-For a batch of B images: (B, 4, 64, 64)
+Stacked together: (4, 128, 128)
+For a batch of B images: (B, 4, 128, 128)
 ```
 
 A well-trained network produces heatmaps with a sharp peak at the corner location
@@ -203,7 +203,7 @@ It also handles negative values gracefully (exp of a negative is a small positiv
 
 **Step 2: Compute the expected (mean) position.**
 
-Once we have a probability distribution over the 64x64 grid, the coordinate is
+Once we have a probability distribution over the 128x128 grid, the coordinate is
 simply the **weighted average** of all positions, weighted by their probabilities:
 
 ```
@@ -224,57 +224,75 @@ them without any issues.
 
 ### Sub-pixel precision
 
-This is the magical part. Even though our grid is only 64x64, the output coordinates
-are continuous floats. If the true corner is between grid cells 30 and 31 (at position
+This is the magical part. Even though our grid is 128x128, the output coordinates
+are continuous floats. If the true corner is between grid cells 60 and 61 (at position
 0.477 on a 0-1 scale), the soft-argmax naturally interpolates: the probability
 distribution straddles the two cells, and the weighted average lands at 0.477.
 
 The precision is limited only by float32 arithmetic, not by the grid resolution.
-In practice, a 64x64 grid with soft-argmax gives precision equivalent to a much
-finer grid.
+In practice, a 128x128 grid with soft-argmax gives precision equivalent to a much
+finer grid. (The backbone produces 64x64 features; the head upsamples to 128x128
+before producing heatmaps, doubling coordinate precision.)
 
 ### How it looks in code
 
 ```python
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
-def soft_argmax_2d(heatmaps):
+class SoftArgmax2D(nn.Module):
     """
     Convert (B, K, H, W) heatmaps to (B, K, 2) coordinates.
     K = number of keypoints (4 for our corners).
     Output coordinates are normalized to [0, 1].
+
+    The learnable temperature scales logits before softmax:
+    higher temperature → sharper distribution → more precise coordinates.
     """
-    B, K, H, W = heatmaps.shape
+    def __init__(self, temperature=1.0):
+        super().__init__()
+        self.temperature = nn.Parameter(torch.tensor(float(temperature)))
 
-    # --- Step 1: softmax over spatial dimensions ---
-    # Reshape (B, K, H, W) → (B, K, H*W) so softmax runs over all positions
-    flat = heatmaps.view(B, K, -1)                # (B, 4, 4096)
-    probs = F.softmax(flat, dim=-1)                # (B, 4, 4096)  sums to 1 per corner
-    probs = probs.view(B, K, H, W)                 # (B, 4, 64, 64)
+    def forward(self, heatmaps):
+        B, K, H, W = heatmaps.shape
 
-    # --- Step 2: create coordinate grids ---
-    # These are fixed 0-to-1 grids, same idea as the CoordConv channels
-    x_coords = torch.linspace(0, 1, W, device=heatmaps.device)  # [0.000, 0.016, ..., 1.000]
-    y_coords = torch.linspace(0, 1, H, device=heatmaps.device)
+        # --- Step 1: scale by temperature and softmax over spatial dims ---
+        # Reshape (B, K, H, W) → (B, K, H*W) so softmax runs over all positions
+        # Multiply by temperature BEFORE softmax to control distribution sharpness
+        flat = heatmaps.view(B, K, -1) * self.temperature  # (B, 4, 16384)
+        probs = F.softmax(flat, dim=-1)                     # (B, 4, 16384)  sums to 1 per corner
+        probs = probs.view(B, K, H, W)                      # (B, 4, 128, 128)
 
-    # --- Step 3: weighted average ---
-    # For x: sum probabilities along height axis, then dot with x positions
-    #   probs.sum(dim=-2) collapses the H dimension → (B, K, W)
-    #   Multiplying by x_coords and summing gives the expected x
-    x = (probs.sum(dim=-2) * x_coords).sum(dim=-1)   # (B, 4)
-    # For y: same but collapse the W dimension first
-    y = (probs.sum(dim=-1) * y_coords).sum(dim=-1)   # (B, 4)
+        # --- Step 2: create coordinate grids ---
+        # These are fixed 0-to-1 grids, same idea as the CoordConv channels
+        x_coords = torch.linspace(0, 1, W, device=heatmaps.device)  # [0.000, 0.008, ..., 1.000]
+        y_coords = torch.linspace(0, 1, H, device=heatmaps.device)
 
-    return torch.stack([x, y], dim=-1)                # (B, 4, 2)
+        # --- Step 3: weighted average ---
+        # For x: sum probabilities along height axis, then dot with x positions
+        #   probs.sum(dim=-2) collapses the H dimension → (B, K, W)
+        #   Multiplying by x_coords and summing gives the expected x
+        x = (probs.sum(dim=-2) * x_coords).sum(dim=-1)   # (B, 4)
+        # For y: same but collapse the W dimension first
+        y = (probs.sum(dim=-1) * y_coords).sum(dim=-1)   # (B, 4)
+
+        return torch.stack([x, y], dim=-1)                # (B, 4, 2)
 ```
+
+**Why learnable temperature?** Early in training, the heatmaps are diffuse — the
+network doesn't yet know where corners are. A moderate temperature keeps gradients
+flowing across the whole grid. As training progresses, the optimizer increases
+temperature, making the softmax distribution sharper and concentrating probability
+mass on the peak. The network learns both where to peak AND how sharp to make the
+peak, jointly optimized by the same loss function.
 
 Let's walk through the `x` computation dimension by dimension:
 
 ```
-probs shape:            (B, 4, 64, 64)     ← probability at each grid cell
-probs.sum(dim=-2):      (B, 4, 64)         ← collapse rows: "how much probability is in each column?"
-  * x_coords:           (B, 4, 64)         ← weight each column by its x position
+probs shape:            (B, 4, 128, 128)   ← probability at each grid cell
+probs.sum(dim=-2):      (B, 4, 128)        ← collapse rows: "how much probability is in each column?"
+  * x_coords:           (B, 4, 128)        ← weight each column by its x position
 .sum(dim=-1):           (B, 4)             ← sum across columns: expected x value per corner
 
 Same logic for y, but collapsing columns first (dim=-1) then summing rows.
@@ -313,16 +331,30 @@ BatchNorm2d(64)
 ReLU
     │
     ▼
-Feature maps (64, 64, 64)                    ← Still 64x64 spatial resolution!
+Feature maps (64, 64, 64)                    ← Still 64x64 spatial resolution
     │
     ▼
-Conv2d(64 → 4, kernel_size=1)               ← Produce 4 heatmaps
+Upsample(scale_factor=2, bilinear)           ← Double spatial resolution
     │
     ▼
-Heatmaps (4, 64, 64)                         ← One heatmap per corner
+Feature maps (64, 128, 128)                  ← Finer grid for precise localization
     │
     ▼
-soft_argmax_2d                                ← Differentiable coordinate extraction
+Conv2d(64 → 32, kernel_size=3, padding=1)    ← Refine upsampled features
+BatchNorm2d(32)
+ReLU
+    │
+    ▼
+Feature maps (32, 128, 128)
+    │
+    ▼
+Conv2d(32 → 4, kernel_size=1)               ← Produce 4 heatmaps
+    │
+    ▼
+Heatmaps (4, 128, 128)                       ← One heatmap per corner
+    │
+    ▼
+SoftArgmax2D (learnable temperature)          ← Differentiable coordinate extraction
     │
     ▼
 Coordinates (4, 2)  → flattened to (8,)      ← Same output format as before!
@@ -365,28 +397,52 @@ This is the layer that learns "what does a document corner look like in feature
 space?" It combines the backbone's visual features (128 channels) with the
 coordinate grids (2 channels) to detect corners at each spatial location.
 
-**`BatchNorm2d(64)`**: Normalizes each of the 64 channels to have mean~0, std~1,
-which stabilizes training. Same concept as BatchNorm in Ng's courses, just applied
-to 2D feature maps.
+**`Upsample(scale_factor=2, bilinear)`**: Doubles the spatial resolution from
+64x64 to 128x128 via bilinear interpolation. This is NOT a learnable layer — it
+simply interpolates between existing values. The purpose is to give subsequent
+conv layers a finer canvas to work on, which directly improves the precision of
+the final soft-argmax coordinate extraction.
 
-**`Conv2d(64, 4, kernel_size=1)`**: A 1x1 convolution, also called a pointwise
+**`Conv2d(64, 32, kernel_size=3, padding=1)`**: A second 3x3 convolution that
+refines the upsampled features. After bilinear upsampling, the features are
+"smooth" — this conv learns to sharpen them into peaked heatmaps. The channel
+reduction (64 → 32) concentrates the representation.
+
+**`BatchNorm2d`**: Applied after each conv layer. Normalizes each channel to have
+mean~0, std~1, which stabilizes training. Same concept as BatchNorm in Ng's
+courses, just applied to 2D feature maps.
+
+**`Conv2d(32, 4, kernel_size=1)`**: A 1x1 convolution, also called a pointwise
 convolution. It processes each spatial position independently — like having a tiny
-Dense layer at every pixel. It takes the 64 features at each location and
+Dense layer at every pixel. It takes the 32 features at each location and
 outputs 4 values: one "score" per corner. No spatial mixing happens here.
 
-**`soft_argmax_2d`**: Converts the 4 score maps into 4 (x,y) coordinate pairs.
-Not a layer with trainable parameters — it's a fixed differentiable operation
-(like a reshape or a ReLU).
+**`SoftArgmax2D`**: Converts the 4 score maps into 4 (x,y) coordinate pairs.
+Has one trainable parameter: **temperature**, which scales the logits before
+softmax to control distribution sharpness (see Section 4). The coordinate grids
+and softmax computation are fixed differentiable operations.
 
-### Why kernel_size=3 for the first conv but 1 for the second?
+### Why kernel_size=3 for the first two convs but 1 for the last?
 
-The first conv needs spatial context — to decide "is this a corner?" you need to
+The 3x3 convs need spatial context — to decide "is this a corner?" you need to
 look at a small neighborhood, not just one pixel. 3x3 is the smallest useful
-receptive field.
+receptive field. Having two 3x3 convs (one before and one after upsampling) gives
+the head a larger effective receptive field.
 
-The second conv just needs to collapse channels — at each position, combine 64
+The last conv just needs to collapse channels — at each position, combine 32
 feature responses into 4 corner scores. No spatial context needed, so 1x1 is
 sufficient and cheaper.
+
+### Why upsample inside the head?
+
+The backbone produces features at 64x64 (8x downsampled from 512x512 input).
+Soft-argmax extracts coordinates as the expected position over the heatmap grid.
+On a 64x64 grid, adjacent cells are 1/64 apart — so even a perfectly peaked
+heatmap can only place coordinates to ~1.5% precision (~8px at 512 input).
+
+Upsampling to 128x128 halves this to ~0.8% (~4px at 512). The bilinear upsample
+itself adds no parameters — the precision gain comes from giving the subsequent
+conv layers and soft-argmax a finer grid to work with.
 
 ---
 
@@ -401,9 +457,12 @@ Let's count parameters:
 | layer2 (backbone) | 525,568 | **Yes** | Two BasicBlock modules, unfrozen |
 | Conv2d(130, 64, k=3, pad=1) | 74,880 | **Yes** | 130 × 64 × 3 × 3 + 64 bias |
 | BatchNorm2d(64) | 128 | **Yes** | 64 × 2 (scale + shift) |
-| Conv2d(64, 4, k=1) | 260 | **Yes** | 64 × 4 × 1 × 1 + 4 bias |
-| soft_argmax_2d | 0 | — | No trainable parameters |
-| **Total trainable** | **~600,900** | | layer2 + head |
+| Upsample(×2, bilinear) | 0 | — | No learnable parameters |
+| Conv2d(64, 32, k=3, pad=1) | 18,464 | **Yes** | 64 × 32 × 3 × 3 + 32 bias |
+| BatchNorm2d(32) | 64 | **Yes** | 32 × 2 (scale + shift) |
+| Conv2d(32, 4, k=1) | 132 | **Yes** | 32 × 4 × 1 × 1 + 4 bias |
+| SoftArgmax2D temperature | 1 | **Yes** | Scalar learnable parameter |
+| **Total trainable** | **~619,200** | | layer2 + head |
 | **Total frozen** | **~157,500** | | conv1 + bn1 + layer1 |
 
 Compare:
@@ -411,10 +470,10 @@ Compare:
 | Approach | Trainable params | Params per training sample |
 |----------|-----------------|---------------------------|
 | Previous (Dense head) | ~8,390,000 | ~380 |
-| Heatmap head only (frozen backbone) | ~75,000 | ~3.4 |
-| **Current (head + unfrozen layer2)** | **~600,900** | **~27** |
+| Heatmap head only (frozen backbone) | ~94,000 | ~4.3 |
+| **Current (head + unfrozen layer2)** | **~619,200** | **~28** |
 
-A ratio of **~27 parameters per sample** is comfortable — well below the danger
+A ratio of **~28 parameters per sample** is comfortable — well below the danger
 zone of the old dense head (~380), but enough capacity to actually learn the task.
 
 Why is ~27 OK for conv layers when ~380 was deadly for dense? Because convolutional
@@ -453,9 +512,11 @@ feature maps into Linear layers creates parameter explosions.
 2. conv1 + bn1 + layer1 extract low-level features (frozen, don't change)
 3. layer2 refines into mid-level features (128, 64, 64) — TRAINABLE
 4. CoordConv appends x,y grids → (130, 64, 64)
-5. Conv head produces heatmaps (4, 64, 64)
-6. soft_argmax extracts coordinates (4, 2) → flattened to (8,)
-7. Loss = PermutationInvariantLoss(predicted_coords, ground_truth_coords)
+5. First conv (130→64, 3×3) processes at 64x64
+6. Upsample doubles resolution → (64, 128, 128)
+7. Second conv (64→32, 3×3) + final conv (32→4, 1×1) → heatmaps (4, 128, 128)
+8. SoftArgmax2D (with learnable temperature) extracts coordinates (4, 2) → flattened to (8,)
+9. Loss = PermutationInvariantLoss(predicted_coords, ground_truth_coords)
 ```
 
 ### Backward pass (gradient flow)
@@ -465,12 +526,19 @@ Loss (scalar)
     │  ∂loss/∂predicted_coords
     ▼
 Predicted coordinates (8,)
-    │  ∂coords/∂heatmaps  ←  Gradient of soft-argmax (it's differentiable!)
+    │  ∂coords/∂heatmaps  ←  Gradient of SoftArgmax2D (differentiable!)
+    │  ∂loss/∂temperature  ←  Temperature is also updated
     ▼
-Heatmaps (4, 64, 64)
+Heatmaps (4, 128, 128)
     │  ∂heatmaps/∂conv_weights  ←  Standard conv backprop
     ▼
-Conv head (trainable)
+Conv2d(32→4) + Conv2d(64→32)  ←  Trainable, operates at 128×128
+    │
+    ▼
+Upsample (bilinear — has well-defined gradients, no trainable params)
+    │
+    ▼
+Conv2d(130→64) (trainable, operates at 64×64)
     │
     ▼
 CoordConv channels (no gradient — fixed grids, not trainable)
@@ -508,46 +576,49 @@ produced.
 
 ## 8. The Code, Piece by Piece
 
-### soft_argmax_2d (new function, goes in config.py or a utils module)
+### SoftArgmax2D (nn.Module in config.py, with learnable temperature)
 
 ```python
-def soft_argmax_2d(heatmaps: torch.Tensor) -> torch.Tensor:
+class SoftArgmax2D(nn.Module):
     """
     Convert heatmaps to normalized coordinates via differentiable soft-argmax.
+    Learnable temperature controls distribution sharpness.
 
     Args:
+        temperature: initial temperature value (default 1.0).
+
+    Input:
         heatmaps: (B, K, H, W) raw scores (logits) from the conv head.
                   B = batch size, K = number of keypoints (4 corners).
 
     Returns:
         (B, K, 2) tensor of (x, y) coordinates, each in [0, 1].
     """
-    B, K, H, W = heatmaps.shape
+    def __init__(self, temperature=1.0):
+        super().__init__()
+        self.temperature = nn.Parameter(torch.tensor(float(temperature)))
 
-    # Flatten spatial dims and apply softmax to get a proper probability distribution.
-    # F.softmax with dim=-1 normalizes across the 4096 spatial positions so they sum to 1.
-    # This makes the heatmap interpretable as: "probability that corner k is at position (i,j)."
-    flat = heatmaps.view(B, K, -1)          # (B, 4, 4096)
-    probs = F.softmax(flat, dim=-1)          # (B, 4, 4096) — sums to 1 per corner
-    probs = probs.view(B, K, H, W)          # (B, 4, 64, 64)
+    def forward(self, heatmaps):
+        B, K, H, W = heatmaps.shape
 
-    # Fixed coordinate grids — these are NOT learned, they're just 0-to-1 rulers.
-    # Same concept as CoordConv channels but used for coordinate readout, not as input features.
-    # .to(device/dtype) ensures they live on the same GPU and have the same precision as the heatmaps.
-    x_coords = torch.linspace(0, 1, W, device=heatmaps.device, dtype=heatmaps.dtype)
-    y_coords = torch.linspace(0, 1, H, device=heatmaps.device, dtype=heatmaps.dtype)
+        # Flatten spatial dims, scale by learnable temperature, then softmax.
+        # F.softmax with dim=-1 normalizes across the 16384 spatial positions so they sum to 1.
+        # Higher temperature → sharper distribution → more precise coordinates.
+        flat = heatmaps.view(B, K, -1) * self.temperature  # (B, 4, 16384)
+        probs = F.softmax(flat, dim=-1)                     # (B, 4, 16384) — sums to 1 per corner
+        probs = probs.view(B, K, H, W)                      # (B, 4, 128, 128)
 
-    # Marginalize out y to get P(x), then compute E[x] = sum(P(x) * x).
-    # probs.sum(dim=-2) sums over the H (height/rows) dimension:
-    #   (B, 4, 64, 64) → (B, 4, 64)  — one value per column (x position)
-    # Multiplying by x_coords weights each column by its x position.
-    # Final .sum(dim=-1) adds up the weighted columns.
-    x = (probs.sum(dim=-2) * x_coords).sum(dim=-1)   # (B, 4)
+        # Fixed coordinate grids — these are NOT learned, they're just 0-to-1 rulers.
+        x_coords = torch.linspace(0, 1, W, device=heatmaps.device, dtype=heatmaps.dtype)
+        y_coords = torch.linspace(0, 1, H, device=heatmaps.device, dtype=heatmaps.dtype)
 
-    # Same thing for y: marginalize out x (columns), weight by y positions.
-    y = (probs.sum(dim=-1) * y_coords).sum(dim=-1)   # (B, 4)
+        # Marginalize out y to get P(x), then compute E[x] = sum(P(x) * x).
+        x = (probs.sum(dim=-2) * x_coords).sum(dim=-1)   # (B, 4)
 
-    return torch.stack([x, y], dim=-1)                # (B, 4, 2)
+        # Same thing for y: marginalize out x (columns), weight by y positions.
+        y = (probs.sum(dim=-1) * y_coords).sum(dim=-1)   # (B, 4)
+
+        return torch.stack([x, y], dim=-1)                # (B, 4, 2)
 ```
 
 ### The new head (replaces the Dense head in config.py)
@@ -557,18 +628,28 @@ head = nn.Sequential(
     nn.Conv2d(head_input_channels, 64, kernel_size=3, padding=1),
     nn.BatchNorm2d(64),
     nn.ReLU(),
-    nn.Conv2d(64, 4, kernel_size=1),  # 4 heatmaps, one per corner
+    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # 64×64 → 128×128
+    nn.Conv2d(64, 32, kernel_size=3, padding=1),
+    nn.BatchNorm2d(32),
+    nn.ReLU(),
+    nn.Conv2d(32, 4, kernel_size=1),  # 4 heatmaps, one per corner
 )
 ```
 
+**Why upsample?** The backbone produces 64×64 features. Soft-argmax precision is
+limited by grid resolution — on 64×64, adjacent cells are 1/64 apart (~8px at 512
+input). Upsampling to 128×128 doubles precision for free (bilinear interpolation
+has no learnable parameters). The subsequent 3×3 conv then learns to sharpen the
+interpolated features into peaked heatmaps.
+
 **Why no Dropout?** Dropout randomly zeroes out neurons during training to prevent
 co-adaptation. In convolutional layers, spatial dropout (zeroing entire channels)
-is the equivalent, but with only 75K parameters and 22K samples, we're not in the
-overfitting danger zone. If we see signs of overfitting, we can add
-`nn.Dropout2d(p=0.1)` after the ReLU — but start without it.
+is the equivalent, but with only ~94K head parameters and 22K+ samples, we're not
+in the overfitting danger zone. If we see signs of overfitting, we can add
+`nn.Dropout2d(p=0.1)` after a ReLU — but start without it.
 
 **Why no Flatten, no Linear?** That's the whole point. The spatial structure is
-preserved all the way through. The heatmaps ARE the spatial output. soft_argmax
+preserved all the way through. The heatmaps ARE the spatial output. SoftArgmax2D
 reads off the coordinates. No flattening needed.
 
 ### Changes to the forward method (train.py)
@@ -578,10 +659,14 @@ def forward(self, x):
     x = self.model(x)                          # backbone: (B, 128, 64, 64)
     if config.coord_conv:
         x = self.add_coords(x)                  # coord grids: (B, 130, 64, 64)
-    heatmaps = self.fc(x)                       # conv head: (B, 4, 64, 64)
-    coords = config.soft_argmax_2d(heatmaps)    # differentiable: (B, 4, 2)
+    heatmaps = self.fc(x)                       # conv head: (B, 4, 128, 128)
+    coords = self.soft_argmax(heatmaps)          # differentiable: (B, 4, 2)
     return coords.flatten(start_dim=1)           # (B, 8)
 ```
+
+Note that `self.soft_argmax` is a `SoftArgmax2D` instance (an `nn.Module`) rather
+than a standalone function. This ensures the learnable temperature parameter is
+registered in the model, saved in checkpoints, and updated by the optimizer.
 
 The output is `(B, 8)` just like before. Everything downstream — loss function,
 TensorBoard logging, checkpoint saving, debug visualization — works unchanged.
@@ -616,7 +701,7 @@ So index 5 is layer2. We freeze everything first, then selectively unfreeze laye
 - **Loss function**: `PermutationInvariantLoss` with L1 inside. Same as before.
 - **Transforms**: CPU and GPU augmentations. Same as before.
 - **Label normalization**: Dividing by image dimensions to get 0-1 range. Same as before.
-- **Optimizer**: Adam. Same as before (but now only ~75K params to optimize).
+- **Optimizer**: Adam. Same as before (but now only ~94K head params + ~526K layer2 to optimize).
 - **Scheduler**: ReduceLROnPlateau. Same as before.
 - **Checkpointing, TensorBoard, debug images**: All work on the (B, 8) output, unchanged.
 
@@ -624,11 +709,11 @@ So index 5 is layer2. We freeze everything first, then selectively unfreeze laye
 
 | Component | Before | After |
 |-----------|--------|-------|
-| `config.py`: head | Conv2d→Flatten→Linear(32768,256)→Linear(256,8) | Conv2d(130,64,k=3)→Conv2d(64,4,k=1) |
-| `config.py`: new function | — | `soft_argmax_2d()` |
+| `config.py`: head | Conv2d→Flatten→Linear(32768,256)→Linear(256,8) | Conv2d(130,64)→Upsample(×2)→Conv2d(64,32)→Conv2d(32,4) |
+| `config.py`: new module | — | `SoftArgmax2D` (learnable temperature) |
 | `config.py`: backbone freezing | Fully frozen | layer2 unfrozen |
-| `train.py`: forward() | `return self.fc(x)` | `heatmaps = self.fc(x)` then `config.soft_argmax_2d(heatmaps).flatten(1)` |
-| Trainable parameters | ~8.4M (dense) | ~600K (layer2 + conv head) |
+| `train.py`: forward() | `return self.fc(x)` | `heatmaps = self.fc(x)` then `self.soft_argmax(heatmaps).flatten(1)` |
+| Trainable parameters | ~8.4M (dense) | ~619K (layer2 + conv head + temperature) |
 
 ### What about CoordConv?
 
@@ -689,40 +774,48 @@ The `merge-stores` command validates that all input stores have matching dimensi
 
 ## 10. Hyperparameters and Tuning
 
-### Temperature (optional, for later)
+### Temperature (learnable, implemented)
 
-The raw softmax in soft-argmax can be made sharper or smoother by dividing the
-logits by a temperature T before softmax:
+The `SoftArgmax2D` module has a learnable temperature parameter (initialized at 1.0)
+that scales logits before softmax. The convention is **multiplication** rather than
+division:
 
 ```python
-probs = F.softmax(flat / temperature, dim=-1)
+flat = heatmaps.view(B, K, -1) * self.temperature  # scale logits
+probs = F.softmax(flat, dim=-1)
 ```
 
-- **T < 1** (e.g., 0.1): Sharper distribution → more precise but harder to train
-  early on (gradients only flow to the peak region).
-- **T > 1** (e.g., 2.0): Smoother distribution → easier to train but less precise.
-- **T = 1**: Default, usually fine.
+- **temperature > 1**: Sharper distribution → more precise coordinates. The network
+  learns to increase temperature as heatmaps become more peaked.
+- **temperature = 1**: Neutral (standard softmax). This is the initialization.
+- **temperature < 1**: Smoother distribution → less precise but easier to train.
 
-Start with T=1. If training is slow to converge, try T=2 for the first few epochs
-then anneal to T=1. But this is an optimization, not a necessity.
+The optimizer adjusts temperature jointly with all other parameters. In TensorBoard,
+watch `diagnostics/temperature` to track its evolution. If temperature grows very
+large (>50), the softmax is approaching hard argmax and gradients may vanish —
+but in practice the loss provides a natural brake.
 
-### Head depth
+### Head depth and upsampling
 
-Our head has 2 conv layers. Options:
+Our head has 3 conv layers with bilinear upsampling between the first and second:
 
-- **1 conv layer** (just Conv2d(130, 4, k=1)): Only 524 params. Might be too simple
-  — each position is processed independently with no spatial context.
-- **2 conv layers** (our choice): 75K params. The 3x3 conv adds spatial context.
-  Good default.
-- **3+ conv layers**: More capacity but diminishing returns with only 75K base params.
-  Try only if 2 layers underfit (training loss plateaus high).
+- **Conv2d(130→64, k=3)** at 64×64: Detects corner features from backbone + coords.
+- **Upsample(×2, bilinear)**: Free precision gain (64×64 → 128×128).
+- **Conv2d(64→32, k=3)** at 128×128: Refines upsampled features into sharp peaks.
+- **Conv2d(32→4, k=1)** at 128×128: Produces 4 heatmaps.
+
+Total head params: ~94K. The upsampling step is key — it doubles coordinate
+precision without adding learnable parameters. The second 3×3 conv operates at
+the finer resolution and can learn to produce sharper heatmaps than would be
+possible at 64×64.
 
 ### Learning rate
 
-With the unfrozen layer2, LR = 0.001 has worked well. The `ReduceLROnPlateau`
-scheduler (factor=0.5, patience=8) reduces it when validation loss stalls. With
-the previous fully-frozen backbone, we started at 0.001 but the scheduler reduced
-it to 1e-5 quickly as the model hit its capacity ceiling.
+With the unfrozen layer2 and full dataset, LR = 0.0001 works well. The
+`ReduceLROnPlateau` scheduler (factor=0.5, patience=4, threshold=1e-3) reduces it
+when validation loss stalls. With the previous fully-frozen backbone, we started
+at 0.001 but the scheduler reduced it to 1e-5 quickly as the model hit its
+capacity ceiling. The larger dataset required dropping to 1e-4 to avoid oscillation.
 
 ### Gradient clipping
 
@@ -734,10 +827,10 @@ further), so clipping prevents occasional instability.
 
 The decision of what to freeze/unfreeze follows a diagnostic flowchart:
 
-1. **Start with fully frozen backbone + heatmap head** (~75K params)
+1. **Start with fully frozen backbone + heatmap head** (~94K params)
 2. If **underfitting** (training loss plateaus high, LR already tiny):
-   → Unfreeze layer2 for more capacity ← **this is where we are now**
-3. If still underfitting → add a deeper head (more conv layers before the 4 heatmaps)
+   → Unfreeze layer2 for more capacity
+3. If still underfitting → add a deeper head with upsampling ← **this is where we are now**
 4. If **overfitting** (val loss rises while train loss drops):
    → Freeze layer2 back, try deeper head instead (more capacity but with conv
      parameter sharing, which resists memorization better than unfreezing backbone

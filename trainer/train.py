@@ -77,6 +77,7 @@ class CroppyNet(
             self.add_coords = config.AddCoordChannels()
 
         self.fc = config.head
+        self.soft_argmax = config.SoftArgmax2D()
 
         # self.model.fc = Sequential(
         #     Dropout(p=dropout),
@@ -101,8 +102,8 @@ class CroppyNet(
         x = self.model(x)                          # backbone: (B, 128, 64, 64)
         if config.coord_conv:
             x = self.add_coords(x)                  # coord grids: (B, 130, 64, 64)
-        heatmaps = self.fc(x)                       # conv head: (B, 4, 64, 64)
-        coords = config.soft_argmax_2d(heatmaps)    # (B, 4, 2)
+        heatmaps = self.fc(x)                       # conv head: (B, 4, 128, 128)
+        coords = self.soft_argmax(heatmaps)          # (B, 4, 2)
         return coords.flatten(start_dim=1)           # (B, 8)
 
     def loss_function(self):
@@ -173,7 +174,7 @@ def validation_data(
     device: Device,
     verbose: bool,
     gpu_transforms,
-    debug_fn: Callable | None,
+    debug: bool,
     visual_debug_path: str,
     s_writer: SummaryWriter | None = None,
     epoch: int = 0,
@@ -181,6 +182,16 @@ def validation_data(
     model.eval()
     val_loss = 0.0
     batch_n = 0
+
+    # Debug: sample from evenly-spaced batches for representative dataset coverage
+    # (ConcatDataset is sequential, so last-batch-only would only show the last dataset)
+    debug_images = {}
+    if debug:
+        n_sample_points = min(3, len(loader))
+        debug_batch_indices = {
+            round(len(loader) * (i + 1) / n_sample_points)
+            for i in range(n_sample_points)
+        }
 
     for images, labels in loader:
         batch_n += 1
@@ -198,24 +209,28 @@ def validation_data(
         labels = (labels / torch.tensor([new_w, new_h], device="cuda")).flatten(
             start_dim=1
         )
-        # labels = torch.clamp(labels.flatten(start_dim=1), 0.0, 1.0)
 
         preds = model(images)
         val_loss += loss_fn(preds, labels).item()
 
-        # only dump debug images on last minibatch
-        if debug_fn and batch_n == len(loader):
-            end = min(10, len(images))
-            # debug_fn(purpose=Purpose.VALIDATION, i=images, l=labels, p=preds)
-            img_dict = debug_fn(i=images[0:end], l=labels[0:end], p=preds[0:end])
-            for fname, data in img_dict.items():
-                cv2.imwrite(visual_debug_path + f"/validation_{fname}", data)
-                if s_writer is not None:
-                    # BGR -> RGB for TensorBoard
-                    rgb = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
-                    s_writer.add_image(
-                        f"validation/{fname}", rgb, global_step=epoch + 1, dataformats="HWC"
-                    )
+        # Collect debug samples from evenly-spaced batches
+        if debug and batch_n in debug_batch_indices:
+            end = min(4, len(images))
+            batch_dict = utils.dump_training_batch(
+                images=images[0:end], labels=labels[0:end], preds=preds[0:end],
+                epoch=epoch, batch_idx=batch_n,
+            )
+            debug_images.update(batch_dict)
+
+    # Write all collected debug images after the loop
+    if debug_images:
+        for fname, data in debug_images.items():
+            cv2.imwrite(visual_debug_path + f"/validation_{fname}", data)
+            if s_writer is not None:
+                rgb = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
+                s_writer.add_image(
+                    f"validation/{fname}", rgb, global_step=epoch + 1, dataformats="HWC"
+                )
 
     return val_loss / len(loader)
 
@@ -412,7 +427,7 @@ def train(
                 device=model.target_device,
                 verbose=verbose,
                 gpu_transforms=train_gpu_transforms if hard_validation else val_gpu_transforms,
-                debug_fn=debug_fn if debug and (epoch + 1) % debug == 0 else None,
+                debug=debug is not None and (epoch + 1) % debug == 0,
                 visual_debug_path=visual_debug_validation_path,
                 s_writer=s_writer if with_tensorboard else None,
                 epoch=epoch,
@@ -435,6 +450,7 @@ def train(
                 s_writer.add_scalar("loss/validation", epoch_val_loss, global_step=epoch + 1)
             s_writer.add_scalar("diagnostics/pred_min", preds.min().item(), global_step=epoch + 1)
             s_writer.add_scalar("diagnostics/pred_max", preds.max().item(), global_step=epoch + 1)
+            s_writer.add_scalar("diagnostics/temperature", model.soft_argmax.temperature.item(), global_step=epoch + 1)
 
         if checkpoint is not None and (epoch + 1) % checkpoint == 0:
             if verbose:

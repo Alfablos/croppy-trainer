@@ -302,17 +302,28 @@ class AddCoordChannels(nn.Module):
 
 ### Soft-Argmax ###
 # Converts heatmaps to coordinates differentiably. See HEATMAPS_APPROACH.md for details.
+initial_temperature = 1.0
 
-def soft_argmax_2d(heatmaps: torch.Tensor) -> torch.Tensor:
-    """Convert (B, K, H, W) heatmaps to (B, K, 2) normalized coordinates via soft-argmax."""
-    B, K, H, W = heatmaps.shape
-    flat = heatmaps.view(B, K, -1)
-    probs = F.softmax(flat, dim=-1).view(B, K, H, W)
-    x_coords = torch.linspace(0, 1, W, device=heatmaps.device, dtype=heatmaps.dtype)
-    y_coords = torch.linspace(0, 1, H, device=heatmaps.device, dtype=heatmaps.dtype)
-    x = (probs.sum(dim=-2) * x_coords).sum(dim=-1)
-    y = (probs.sum(dim=-1) * y_coords).sum(dim=-1)
-    return torch.stack([x, y], dim=-1)
+
+class SoftArgmax2D(nn.Module):
+    """Convert (B, K, H, W) heatmaps to (B, K, 2) normalized coordinates via soft-argmax.
+
+    Learnable temperature scales logits before softmax: higher temperature produces a
+    sharper probability distribution, yielding more precise coordinate extraction.
+    """
+    def __init__(self, temperature=initial_temperature):
+        super().__init__()
+        self.temperature = nn.Parameter(torch.tensor(float(temperature)))
+
+    def forward(self, heatmaps):
+        B, K, H, W = heatmaps.shape
+        flat = heatmaps.view(B, K, -1) * self.temperature
+        probs = F.softmax(flat, dim=-1).view(B, K, H, W)
+        x_coords = torch.linspace(0, 1, W, device=heatmaps.device, dtype=heatmaps.dtype)
+        y_coords = torch.linspace(0, 1, H, device=heatmaps.device, dtype=heatmaps.dtype)
+        x = (probs.sum(dim=-2) * x_coords).sum(dim=-1)
+        y = (probs.sum(dim=-1) * y_coords).sum(dim=-1)
+        return torch.stack([x, y], dim=-1)
 
 
 ### Heatmap Head ###
@@ -322,7 +333,11 @@ head = nn.Sequential(
     nn.Conv2d(head_input_channels, 64, kernel_size=3, padding=1),
     nn.BatchNorm2d(64),
     nn.ReLU(),
-    nn.Conv2d(64, 4, kernel_size=1),  # 4 heatmaps, one per corner
+    nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False),  # 64×64 → 128×128
+    nn.Conv2d(64, 32, kernel_size=3, padding=1),
+    nn.BatchNorm2d(32),
+    nn.ReLU(),
+    nn.Conv2d(32, 4, kernel_size=1),  # 4 heatmaps, one per corner
 )
 
 ### Optimizer ###
