@@ -274,6 +274,14 @@ def train(
 
     if with_tensorboard:
         s_writer = SummaryWriter(log_dir=tensorboard_logdir)
+        s_writer.add_custom_scalars({
+            "Loss": {
+                "train_vs_val": ["Multiline", ["loss/train", "loss/validation"]],
+            },
+            "Diagnostics": {
+                "pred_range": ["Multiline", ["diagnostics/pred_min", "diagnostics/pred_max"]],
+            },
+        })
         url = utils.launch_tensorboard(tensorboard_logdir)
         if verbose:
             print(f"Tensorboard is listening at {url}")
@@ -294,7 +302,7 @@ def train(
     model = model.to(model.target_device.value)
     optimizer = Adam(model.parameters(), lr=model.learning_rate, weight_decay=config.weight_decay)
 
-    scheduler = ReduceLROnPlateau(optimizer, mode=config.scheduler_mode, factor=config.scheduler_factor, patience=config.scheduler_patience)
+    scheduler = ReduceLROnPlateau(optimizer, mode=config.scheduler_mode, factor=config.scheduler_factor, patience=config.scheduler_patience, threshold=config.scheduler_threshold)
 
     if resume_from:
         optimizer.load_state_dict(resume_from["optimizer_state_dict"])
@@ -421,25 +429,12 @@ def train(
             )
 
         if with_tensorboard:
-            s_writer.add_scalar(
-                tag=f"LR_epoch{run_name}",
-                scalar_value=optimizer.param_groups[0]["lr"],
-                global_step=epoch + 1,
-            )
-            board_payload = {"train": epoch_train_loss}
+            s_writer.add_scalar("lr", optimizer.param_groups[0]["lr"], global_step=epoch + 1)
+            s_writer.add_scalar("loss/train", epoch_train_loss, global_step=epoch + 1)
             if validation_dataloader:
-                board_payload["validation"] = epoch_val_loss
-            s_writer.add_scalars(
-                main_tag=f"LOSSES_{run_name}",
-                tag_scalar_dict=board_payload,
-                global_step=epoch + 1,
-            )
-
-            s_writer.add_scalars(
-                "diagnostics/pred_range",
-                {"min": preds.min().item(), "max": preds.max().item()},
-                global_step=epoch + 1,
-            )
+                s_writer.add_scalar("loss/validation", epoch_val_loss, global_step=epoch + 1)
+            s_writer.add_scalar("diagnostics/pred_min", preds.min().item(), global_step=epoch + 1)
+            s_writer.add_scalar("diagnostics/pred_max", preds.max().item(), global_step=epoch + 1)
 
         if checkpoint is not None and (epoch + 1) % checkpoint == 0:
             if verbose:

@@ -331,5 +331,6 @@ grad_clip_max_norm = 1.0  # max L2 norm for gradient clipping; None to disable
 
 ### LR Scheduler ###
 scheduler_factor = 0.5
-scheduler_patience = 8
+scheduler_patience = 4
 scheduler_mode = "min"
+scheduler_threshold = 1e-3

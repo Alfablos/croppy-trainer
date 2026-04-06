@@ -11,7 +11,8 @@ let
   cpuCount = 16;
 
   # Precompute variables
-  precomputeOutputDir = "./croppy_extended_" + (if compact then "compact_" else "") + h + "x" + w;
+  precomputeOutputDir =
+    "./croppy_extended+original_" + (if compact then "compact_" else "") + h + "x" + w;
   h = "512"; # "1024";
   w = "512"; # "768";
   strict = false;
@@ -46,10 +47,10 @@ let
   storeDir = precomputeOutputDir;
   # loss_function = "invariant_smooth_mae";
   loss_function = "invariant_mae";
-  learning_rate = "0.001";
+  learning_rate = "0.0001";
   epochs = "100";
   workers = toString (cpuCount / 2);
-  batch_size = "256";
+  batch_size = "128";
   device = "gpu";
   debug = "2";
   checkpoint = "3";
