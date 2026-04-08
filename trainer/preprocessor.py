@@ -183,7 +183,7 @@ def precompute(
 
     # Write each example in the db after converting it to RGB
     if verbose:
-        print(f"Creating LMDB store at {db_path}.")
+        print(f"Creating {DEFAULT_STORAGE_CLASS} store at {db_path}.")
     csv_index_file = open(f"{index_path}", mode="w", newline="")
     csv_writer = csv.writer(csv_index_file)
     csv_header = architecture.get_csv_header()

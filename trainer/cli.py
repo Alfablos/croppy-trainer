@@ -164,6 +164,7 @@ def _resolve_store_path(store_dir: str, architecture: Architecture, purpose: str
 def _discover_store_dimensions(store_dir: str, architecture: Architecture) -> tuple[int, int]:
     """Read h/w from the first available store in the directory."""
     for arrow_file in sorted(Path(store_dir).rglob(f"data_{architecture.value}_*.arrow")):
+        print(f"Opening store at {arrow_file}...")
         with storage.new_store(str(arrow_file), write=False) as store:
             return int(store.get_metadata("h")), int(store.get_metadata("w"))
     raise FileNotFoundError(f"No stores found for architecture '{architecture}' in {store_dir}")
@@ -172,7 +173,7 @@ def _discover_store_dimensions(store_dir: str, architecture: Architecture) -> tu
 def run_train(args):
     """Run training using config-declared paths or CLI override."""
     print("Starting training job...")
-
+    
     architecture = Architecture.from_str(args.architecture)
 
     # Determine store directory
@@ -231,6 +232,14 @@ def run_train(args):
         validation_datasets.append(ds)
     val_dataset = ConcatDataset(validation_datasets) if len(validation_datasets) > 1 else validation_datasets[0]
 
+    # Compute per-source boundaries for per-source val loss logging
+    # ConcatDataset is sequential: [source0_samples..., source1_samples...]
+    val_source_boundaries = []
+    cumulative = 0
+    for source, ds in zip(config.DATA_SOURCES["validation"], validation_datasets):
+        cumulative += len(ds)
+        val_source_boundaries.append((source.name, cumulative))
+
     val_dataloader = DataLoader(
         pin_memory=True,
         dataset=val_dataset,
@@ -274,6 +283,7 @@ def run_train(args):
         debug=int(args.debug) if args.debug is not None else None,
         checkpoint=args.checkpoint,
         resume_from=resume_checkpoint,
+        val_source_boundaries=val_source_boundaries,
     )
 
 
@@ -301,7 +311,7 @@ def run_predict(args):
     norm_coords = predict(image=resized_image, model=model, device=device)
 
     # Denormalize to original image pixel coordinates
-    actual_coords = get_image_points(original_image.shape, norm_coords)
+    actual_coords = get_image_points(original_image.shape, (512, 512), norm_coords)
 
     draw_box(actual_coords, original_image)
 

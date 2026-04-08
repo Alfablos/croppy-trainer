@@ -162,6 +162,19 @@ def crawl(
             raise RuntimeError(ds_err)
 
         ds_rows = ds.fetch(architecture)
+
+        # Apply source-level exclude_patterns (regexes matched via re.search
+        # against DataRow.image_path). Always-on log because dropping data is
+        # a material configuration the user should see confirmed.
+        if getattr(ds, "exclude_patterns", None):
+            before = len(ds_rows)
+            ds_rows = [r for r in ds_rows if not ds.should_exclude(r.image_path)]
+            excluded = before - len(ds_rows)
+            print(
+                f"  [{ds.name}] excluded {excluded}/{before} rows "
+                f"matching {ds.exclude_patterns}"
+            )
+
         # Convert DataRow objects to dicts for processing/serialization
         all_rows.extend([r.to_dict() for r in ds_rows])
 

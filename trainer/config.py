@@ -43,26 +43,31 @@ class SmartDocExtendedDataSource(DataSource):
         root_path: str,
         crawl_output_path: str | None = None,
         precompute_base_dir: str | None = None,
+        exclude_patterns: list[str] | None = None,
         ):
         self.name = name
         self.root_path = Path(root_path)
         self._crawl_output_path = crawl_output_path
         self._precompute_base_dir = precompute_base_dir
+        self.exclude_patterns = exclude_patterns
         # CPU: source-specific augmentations (run per-sample in DataLoader workers)
         self.train_cpu_transforms = transformsV2.Compose([
             transformsV2.ToImage(),
             transformsV2.JPEG(quality=[70, 100]),
-            transformsV2.ColorJitter(brightness=0.5, contrast=0.8, saturation=0.4),
+            transformsV2.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2),
             transformsV2.GaussianBlur(kernel_size=(1, 5), sigma=(0.1, 2)),
             transformsV2.ToDtype(torch.float32, scale=True),
-            transformsV2.GaussianNoise(),
+            transformsV2.GaussianNoise(sigma=0.02),
         ])
         self.val_cpu_transforms = transformsV2.Compose([
             transformsV2.ToImage(),
             transformsV2.ToDtype(torch.float32, scale=True),
         ])
-        # GPU: backbone normalization (run per-batch in training loop)
-        self.train_gpu_transforms = transformsV2.Compose([_normalize])
+        # GPU: geometric augmentation + backbone normalization (run per-batch in training loop)
+        self.train_gpu_transforms = transformsV2.Compose([
+            transformsV2.RandomPerspective(distortion_scale=0.1, p=0.3),
+            _normalize,
+        ])
         self.val_gpu_transforms = transformsV2.Compose([_normalize])
 
     def check(self) -> str | None:
@@ -144,6 +149,7 @@ class SmartDocDataSource(DataSource):
         split: tuple[float, float] | None = None,
         crawl_output_path: str | None = None,
         precompute_base_dir: str | None = None,
+        exclude_patterns: list[str] | None = None,
     ):
         self.name = name
         self.root_path = Path(root_path)
@@ -151,6 +157,7 @@ class SmartDocDataSource(DataSource):
         self.split = split
         self._crawl_output_path = crawl_output_path
         self._precompute_base_dir = precompute_base_dir
+        self.exclude_patterns = exclude_patterns
         # Real video frames already have natural variation — no augmentation needed
         self.train_cpu_transforms = transformsV2.Compose([
             transformsV2.ToImage(),
@@ -160,8 +167,11 @@ class SmartDocDataSource(DataSource):
             transformsV2.ToImage(),
             transformsV2.ToDtype(torch.float32, scale=True),
         ])
-        # GPU: backbone normalization only
-        self.train_gpu_transforms = transformsV2.Compose([_normalize])
+        # GPU: geometric augmentation + backbone normalization (run per-batch in training loop)
+        self.train_gpu_transforms = transformsV2.Compose([
+            transformsV2.RandomPerspective(distortion_scale=0.1, p=0.3),
+            _normalize,
+        ])
         self.val_gpu_transforms = transformsV2.Compose([_normalize])
 
     def check(self) -> str | None:
@@ -259,11 +269,14 @@ DATA_SOURCES: dict[str, list[DataSource]] = {
             # precompute_base_dir not specified, will use PATHS["training"]["precompute_output_dir"]
         ),
         SmartDocDataSource(
-            name="smartdoc_original_train",
+            # bg05 (cluttered desk with objects overlapping the document) is
+            # excluded for the lightweight scan use case — see OVERLAP_RESISTANCE.md.
+            name="smartdoc_original_train_nobg5",
             root_path="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/smart_doc_extracted/images",
             metadata_file="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/frame_data.csv",
             split=(0, 0.8),  # first 80%
-            crawl_output_path="./data/crawl_smartdoc_original_train.csv",
+            exclude_patterns=[r"background05-"],
+            crawl_output_path="./data/crawl_smartdoc_original_train_nobg5.csv",
         ),
     ],
     "validation": [
@@ -273,11 +286,14 @@ DATA_SOURCES: dict[str, list[DataSource]] = {
             crawl_output_path="./data/crawl_smartdoc_extended_validation.csv",
         ),
         SmartDocDataSource(
-            name="smartdoc_original_val",
+            # bg05 excluded from validation too — matches the target deployment
+            # distribution so val loss reflects the actual scan quality metric.
+            name="smartdoc_original_val_nobg5",
             root_path="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/smart_doc_extracted/images",
             metadata_file="/home/antonio/Downloads/smartdoc15/smartdoc2015_extracted_frames/frame_data.csv",
             split=(0.8, 1.0),  # last 20%
-            crawl_output_path="./data/crawl_smartdoc_original_val.csv",
+            exclude_patterns=[r"background05-"],
+            crawl_output_path="./data/crawl_smartdoc_original_val_nobg5.csv",
         ),
     ],
 }

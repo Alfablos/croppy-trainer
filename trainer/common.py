@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, List, TYPE_CHECKING
 from enum import Enum
 from abc import ABCMeta, abstractmethod
@@ -198,6 +199,23 @@ class DataSource(metaclass=ABCMeta):
         if self._crawl_output_path is None:
             return f"./data/crawl_{self.name}.csv"
         return self._crawl_output_path
+
+    def should_exclude(self, path: str) -> bool:
+        """
+        Check whether a given image path matches any of this source's
+        ``exclude_patterns`` regexes. Patterns are applied with ``re.search``
+        against the full path string, so both filename- and directory-level
+        patterns work (e.g. ``r"background05-"`` or ``r"/bg05/"``). Compiled
+        lazily on first call and cached on the instance.
+        """
+        patterns = getattr(self, "exclude_patterns", None)
+        if not patterns:
+            return False
+        compiled = getattr(self, "_compiled_exclude_patterns", None)
+        if compiled is None:
+            compiled = [re.compile(p) for p in patterns]
+            self._compiled_exclude_patterns = compiled
+        return any(p.search(path) is not None for p in compiled)
 
     def get_precompute_base_dir(self, purpose: Purpose, paths_config: dict | None = None) -> str:
         """

@@ -26,14 +26,8 @@ from loss import PermutationInvariantLoss
 
 class CroppyNet(
     nn.Module
-):  # TODO: make it architecture-agnostic: take in base_model and fully_connected_layers to set self.model.fc
-# Replace Flatten() with AdaptiveAvgPool2d(4) before flattening. This gives 4×4×512 = 8,192 features — preserves a coarse spatial grid while being 16× smaller. Then Linear(8192, 512) is far more tractable. Alternatively, add a Conv2d(512, 64, 1) (1×1 conv) before flattening to reduce channels: 64×16×16 = 16,384 features, keeping full spatial resolution at lower cost.
+):
 
-# RandomPerspective(distortion_scale=0.5, p=0.7) — distortion_scale=0.5 is extreme. It can move corners by up to 25% of the image dimension. At 70% probability, most training samples are heavily distorted. The model learns "roughly where corners are" but can't learn sub-pixel precision because the ground truth corners themselves are in wildly different positions each epoch => use 0.15-0.25
-
-# ElasticTransform(alpha=40.0) — warps the image locally. Fine for classification robustness, but it moves the exact corner locations in non-rigid ways, making it harder to learn precise corner regression => use alpha=15.0
-# What ElasticTransform does: It applies a random displacement field — each pixel gets nudged in a random direction by a random amount. At alpha=40.0, pixels can be displaced by up to ~40px. Crucially, since you're using torchvision v2 with KeyPoints, the corner coordinates are correctly displaced alongside the image. So there's no label noise — the ground truth is still accurate.
-# What I meant: After elastic distortion, the document's edges become wavy/curved — they're no longer straight lines. The "corners" still exist as keypoints, but they're now corners of a wobbly shape that doesn't look like a real document. In real life, a phone camera produces perspective distortion (which RandomPerspective simulates well), but never elastic/wavy distortion. So the model spends capacity learning to handle a distortion type it'll never see in production
     def __init__(
         self,
         architecture: Architecture,
@@ -78,25 +72,6 @@ class CroppyNet(
 
         self.fc = config.head
         self.soft_argmax = config.SoftArgmax2D()
-
-        # self.model.fc = Sequential(
-        #     Dropout(p=dropout),
-        #     # Adding not just one final layer but three, to give the model
-        #     # enough parameters since data will be JPEG with degraded quality
-        #     # and rotation!
-        #     Linear(in_features=512, out_features=256),
-        #     ReLU(),
-        #     Linear(in_features=256, out_features=64),
-        #     ReLU(),
-        #     # output = 8 because we have 8 coordinates:
-        #     # the document page has 8 coordinates, not 2 like in bounding boxes of object detection because the camera won't be EXACTLY orthogonal)
-        #     Linear(in_features=64, out_features=8),
-        #     # pure linear regression, no sigmoid, if corners fall outside the image
-        #     # handle via software values like x > width
-        #     # Sigmoid(),  # between 0 and 1 for each coordinate
-        #     # Sigmoid meaning: tell me exactly where I need to crop
-        #     # Linear meaning: tell me where the corners should be, I'll take it from here
-        # )
 
     def forward(self, x):
         x = self.model(x)                          # backbone: (B, 128, 64, 64)
@@ -178,10 +153,20 @@ def validation_data(
     visual_debug_path: str,
     s_writer: SummaryWriter | None = None,
     epoch: int = 0,
-) -> float:
+    val_source_boundaries: list[tuple[str, int]] | None = None,
+) -> tuple[float, dict[str, float]]:
     model.eval()
     val_loss = 0.0
     batch_n = 0
+    samples_seen = 0
+
+    # Per-source loss tracking (ConcatDataset is sequential, shuffle=False)
+    source_losses: dict[str, float] = {}
+    source_batch_counts: dict[str, int] = {}
+    if val_source_boundaries:
+        for name, _ in val_source_boundaries:
+            source_losses[name] = 0.0
+            source_batch_counts[name] = 0
 
     # Debug: sample from evenly-spaced batches for representative dataset coverage
     # (ConcatDataset is sequential, so last-batch-only would only show the last dataset)
@@ -195,6 +180,7 @@ def validation_data(
 
     for images, labels in loader:
         batch_n += 1
+        batch_size = len(images)
         if verbose:
             print(f"Training (validation): starting batch {batch_n} of {len(loader)}")
         images, labels = images.to(device.value), labels.to(device.value)
@@ -211,7 +197,18 @@ def validation_data(
         )
 
         preds = model(images)
-        val_loss += loss_fn(preds, labels).item()
+        batch_loss = loss_fn(preds, labels).item()
+        val_loss += batch_loss
+
+        # Attribute batch loss to the source containing the batch midpoint
+        if val_source_boundaries:
+            batch_midpoint = samples_seen + batch_size // 2
+            for name, end_idx in val_source_boundaries:
+                if batch_midpoint < end_idx:
+                    source_losses[name] += batch_loss
+                    source_batch_counts[name] += 1
+                    break
+        samples_seen += batch_size
 
         # Collect debug samples from evenly-spaced batches
         if debug and batch_n in debug_batch_indices:
@@ -232,7 +229,13 @@ def validation_data(
                     f"validation/{fname}", rgb, global_step=epoch + 1, dataformats="HWC"
                 )
 
-    return val_loss / len(loader)
+    # Compute per-source average losses
+    per_source_losses = {}
+    for name in source_losses:
+        if source_batch_counts[name] > 0:
+            per_source_losses[name] = source_losses[name] / source_batch_counts[name]
+
+    return val_loss / len(loader), per_source_losses
 
 
 def train(
@@ -251,6 +254,7 @@ def train(
     with_tensorboard: bool = False,
     verbose=False,
     progress=False,
+    val_source_boundaries: list[tuple[str, int]] | None = None,
 ):
     out_dir = out_dir.rstrip("/")
     if with_tensorboard:
@@ -289,9 +293,11 @@ def train(
 
     if with_tensorboard:
         s_writer = SummaryWriter(log_dir=tensorboard_logdir)
+        per_source_tags = [f"loss/validation/{name}" for name, _ in (val_source_boundaries or [])]
         s_writer.add_custom_scalars({
             "Loss": {
                 "train_vs_val": ["Multiline", ["loss/train", "loss/validation"]],
+                "val_per_source": ["Multiline", ["loss/validation"] + per_source_tags],
             },
             "Diagnostics": {
                 "pred_range": ["Multiline", ["diagnostics/pred_min", "diagnostics/pred_max"]],
@@ -420,7 +426,7 @@ def train(
             break
 
         try:
-            epoch_val_loss = validation_data(
+            epoch_val_loss, per_source_val = validation_data(
                 model=model,
                 loader=validation_dataloader,
                 loss_fn=model.loss_fn,
@@ -431,6 +437,7 @@ def train(
                 visual_debug_path=visual_debug_validation_path,
                 s_writer=s_writer if with_tensorboard else None,
                 epoch=epoch,
+                val_source_boundaries=val_source_boundaries,
             )
             scheduler.step(epoch_val_loss)
         except KeyboardInterrupt:
@@ -448,6 +455,8 @@ def train(
             s_writer.add_scalar("loss/train", epoch_train_loss, global_step=epoch + 1)
             if validation_dataloader:
                 s_writer.add_scalar("loss/validation", epoch_val_loss, global_step=epoch + 1)
+            for source_name, source_loss in per_source_val.items():
+                s_writer.add_scalar(f"loss/validation/{source_name}", source_loss, global_step=epoch + 1)
             s_writer.add_scalar("diagnostics/pred_min", preds.min().item(), global_step=epoch + 1)
             s_writer.add_scalar("diagnostics/pred_max", preds.max().item(), global_step=epoch + 1)
             s_writer.add_scalar("diagnostics/temperature", model.soft_argmax.temperature.item(), global_step=epoch + 1)

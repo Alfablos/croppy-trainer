@@ -134,6 +134,7 @@ if __name__ == "__main__":
         "-S",
         help="Directory containing precomputed per-source Arrow stores. "
              "If not specified, uses the default from config.PATHS['training']['precompute_output_dir'].",
+        required=False
     )
     train_cmd.add_argument("--architecture", "--arch", "-a", required=True)
     train_cmd.add_argument(
