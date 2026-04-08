@@ -141,6 +141,7 @@
             inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.croppy-trainer ];
             packages = [
               python
+              pkgs.ty
               pkgs.uv
               pkgs.ruff
               pkgs.lmdb
