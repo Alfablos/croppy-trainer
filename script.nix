@@ -6,13 +6,13 @@ let
   runCmd = "python croppy.py";
   architecture = "resnet";
 
-  verbose = false;
-  progress = true;
+  verbose = true;
+  progress = false;
   cpuCount = 16;
 
   # Precompute variables
   precomputeOutputDir =
-    "./croppy_extended+original_" + (if compact then "compact_" else "") + h + "x" + w;
+    "./croppy_extended+original_nobackground05_" + (if compact then "compact_" else "") + h + "x" + w;
   h = "512"; # "1024";
   w = "512"; # "768";
   strict = false;
@@ -52,8 +52,8 @@ let
   workers = toString (cpuCount / 2);
   batch_size = "128";
   device = "gpu";
-  debug = "2";
-  checkpoint = "3";
+  debug = "1";
+  checkpoint = "1";
   tensorboard = true;
   hard_validation = false;
 
